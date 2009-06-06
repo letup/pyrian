@@ -1,0 +1,161 @@
+#! /usr/bin/perl -w
+
+# Read information from scene file
+
+open( SCENE_POV, $ARGV[0] ) || die "failed opening scene pov\n";
+
+my $line					= undef;
+my $file_data				= "";
+my @animation_name_list		= ( );
+my @animation_frames_list	= ( );
+my @animation_duration_list	= ( );
+
+while( $line = <SCENE_POV> )
+{
+    if( $line =~ /ANIMATION\s*--\s*name:\s*(.*),\s*frames:\s*(\d*),\s*duration:\s*(.*)/ )
+    {
+		my	$name		= "$1";
+		my	$frames		= "$2";
+		my	$duration	= "$3";
+    
+		# Make multiple animations (i.e. at different rotations)
+    
+		if( $name =~ /\[(\d*)\]/ )
+		{
+		    my	$num		= "$1";
+	
+		    for( my $i = 0; $i < $num; $i++ )
+		    {	    
+				$name =~ s/\[(\d*)\]/\[$i\]/;
+
+				push( @animation_name_list, $name );
+				push( @animation_frames_list, $frames );
+				push( @animation_duration_list, $duration );
+		    }
+		} else {
+		    push( @animation_name_list, $name );
+		    push( @animation_frames_list, $frames );
+		    push( @animation_duration_list, $duration );
+		}
+    } else {
+        $file_data = $file_data . $line;
+    }    
+}
+
+close( SCENE_POV );
+
+# For each animation, create a .ini file, a .pov file, and invoke povray
+
+for( my $i = 0; $i < @animation_name_list; $i++ )
+{
+	$anim_base_name = "$animation_name_list[$i]";
+	$anim_base_name =~ s/\[\d+\]//;
+
+    # Open the output .ini
+
+    open( OUTPUT_INI, ">" . $ARGV[2] ) || die "failed opening output .ini";
+    
+    # Read the template ini file and insert values
+
+    open( INI_TEMPLATE, $ARGV[0] ) || die "failed opening .ini template\n";
+
+    my $last_frame = $animation_frames_list[$i] - 1;
+
+    while( $line = <INI_TEMPLATE> )
+    {
+		if( $line =~ s/<name>/$animation_name_list[$i]/ ) {}
+		if( $line =~ s/<frames>/$animation_frames_list[$i]/ ) {}
+		if( $line =~ s/<last_frame>/$last_frame/ ) {}
+		if( $line =~ s/<duration>/$animation_duration_list[$i]/ ) {}
+	
+		print OUTPUT_INI $line;
+    }
+
+    close( INI_TEMPLATE );
+    
+    # Open the output .pov file for writing
+    
+    open( OUTPUT_POV, ">output.pov" ) || die "failed opening output.pov\n";
+
+    # Write some utility macros
+    
+    print OUTPUT_POV <<EOF;
+#fopen info_file "../frame.output" append
+    
+#macro write_info( data )
+    #write( info_file, data )
+#end
+
+#macro vector_string( vector )
+    concat( 
+	str( vector.x, -1, -1 ), ", ",
+	str( vector.y, -1, -1 ), ", ",
+	str( vector.z, -1, -1 ), "\n" )
+#end
+
+#declare $anim_base_name = 1;
+
+EOF
+    
+    # Make replacements and write pov file
+    
+    my $in_block	= 0;
+    my $valid_block	= 0;
+    my $name		= "";
+    
+    foreach $line ( split( /\n/, $file_data ) )
+    {
+		if( $line =~ /BLOCK_START\(\s*(.*)\s*\)/ )
+		{
+		    $in_block = 1;
+	
+		    foreach $name ( split( /\s/, $1 ) )
+		    {
+				if( $name eq $animation_name_list[$i] )
+				{
+				    $valid_block = 1;
+				}
+		    }
+	    
+		    next;
+		}	
+	
+		if( $line =~ /BLOCK_END/ )
+		{
+		    $in_block = 0;
+		    $valid_block = 0;
+		    next;
+		}
+	
+		$line =~ s/ANIM_NAME/\"$animation_name_list[$i]\"/;
+	
+		if( $line =~ /ANIM_NUM/ )
+		{
+		    my	$num	= -1;
+	    
+		    if( $animation_name_list[$i] =~ /\[(\d*)\]/ )
+		    {
+				$num 	= $1;
+		    }
+	
+		    $line 	=~ s/ANIM_NUM/$num/
+		}
+	
+		if( ($in_block == 1 and $valid_block == 1) or $in_block == 0 )
+		{
+		    print OUTPUT_POV $line . "\n";
+		}
+    }
+
+    close( OUTPUT_POV );
+
+    if( $animation_name_list[$i] =~ /shadow/ )
+    {
+		print OUTPUT_INI "Quality = 4\n";
+    }
+
+    close( OUTPUT_INI );
+
+	print "Rendering $animation_name_list[$i]...\n";
+    `povray scene +Ioutput.pov +FN16 +A +J +O$animation_name_list[$i].png +UA`;# >/dev/null 2>/dev/null`;
+}
