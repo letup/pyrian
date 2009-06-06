@@ -1,0 +1,22 @@
+Input_File_Name = output.pov
+Output_File_Name = ../images/<name>.png
+
+Library_Path = /home/billmoyers/povray/include/
+
+Pre_Scene_Command = echo "frames: <frames>, duration: <duration>" > ../info/<name>.info
+Pre_Frame_Command = echo "frame: %o" >> ../info/<name>.info
+Post_Frame_Command = cat ../frame.output >> ../info/<name>.info\;echo -n > ../frame.output
+
+Width = 320
+Height = 240
+
+Output_File_Type = N
+Output_Alpha = on
+Cyclic_Animation = on
+Antialias = on
+
+Initial_Frame = 0
+Final_Frame = <last_frame>
+
+Initial_Clock = 0
+Final_Clock = <duration>
