@@ -104,6 +104,20 @@ class Newtonian_Force_Event (Event):
 	"""
 	Abstract base class of Newtonian force events.
 	"""
+
+	def get_linear_force( self, time ):
+		"""
+		Get the force vector induced by this event.
+		@return The force vector.
+		"""
+		return array( [0.0, 0.0], 'f' )
+
+	def get_rotational_force( self, time ):
+		"""
+		Get the constant force vector induced by this event.
+		@return The force vector.
+		"""
+		return 0
 	
 class Linear_Force_Event (Newtonian_Force_Event):
 	"""
@@ -182,6 +196,25 @@ class Oriented_Force_Event (Newtonian_Force_Event):
 			float( math.sin( v + self.ro )*self.m )], 'f' )
 		return v
 
+class Damping_Force_Event (Newtonian_Force_Event):
+	__slots__ = ['c']
+	
+	def __init__( self, dest, dtime, **kwargs ):
+		"""
+		Basic constructor.
+		@param kwargs Required keys are:
+			- c : Damping coefficient.
+		"""
+		Newtonian_Force_Event.__init__( self, dest, dtime )
+		self.c = kwargs['c']
+		
+	def get_linear_force( self, time ):
+		"""
+		Get the force vector induced by this event.
+		@return The force vector.
+		"""
+		return array( [0.0, 0.0], 'f' )
+
 class Object:
 	__slots__ = ['p','v','rp','rv']
 	
@@ -243,10 +276,7 @@ class Object:
 		a = zeros( (2,), 'float' )
 		
 		for e in self.forces:
-			if isinstance( e, Linear_Force_Event ):
-				a += e.get_linear_force( time )
-
-			elif isinstance( e, Oriented_Force_Event ):
+			if isinstance( e, Newtonian_Force_Event ):
 				a += e.get_linear_force( time )
 				
 		t = time - self.commit_time
@@ -261,10 +291,7 @@ class Object:
 		a = zeros( (2,), 'float' )
 		
 		for e in self.forces:
-			if isinstance( e, Linear_Force_Event ):
-				a += e.get_linear_force( time )
-
-			elif isinstance( e, Oriented_Force_Event ):
+			if isinstance( e, Newtonian_Force_Event ):
 				a += e.get_linear_force( time )				
 				
 		t = time - self.commit_time
@@ -316,7 +343,7 @@ class Object:
 		ra = 0
 		
 		for e in self.forces:		
-			if isinstance( e, Rotational_Force_Event ):
+			if isinstance( e, Newtonian_Force_Event ):
 				ra += e.get_rotational_force( time )
 		
 		t = time - self.commit_time
@@ -437,13 +464,13 @@ class Network_Request_Handler (SocketServer.BaseRequestHandler):
 		event_manager.server.connections.append( self.request )
 		data = ' '
 		
-		username, pw = self.request.recv( 1024 ).split( " " )
+		username, pw = Network_Server.recv_packet( self.request ).split( " " )
 		
 		if pw != Event_Manager.event_manager.password:
-			self.request.send( "0" )
+			Network_Server.send_packet( self.request, "0" )
 			return
 		else:
-			self.request.send( '1' )
+			Network_Server.send_packet( self.request, '1' )
 			
 		event_manager.usernames[self.request] = username
 		
@@ -482,10 +509,10 @@ class Network_Server (Thread):
 			self.upstream = kwargs['upstream']
 			self.connections.append( self.upstream )
 			
-			self.upstream.send( "%s %s" % (Event_Manager.event_manager.username,
+			self.send_packet( self.upstream, "%s %s" % (Event_Manager.event_manager.username,
 				Event_Manager.event_manager.password) )
 			
-			response = self.upstream.recv( 1024 )
+			response = self.recv_packet( self.upstream )
 			if response == '1':
 				print "Authentication succeeded."
 			else:
@@ -514,13 +541,18 @@ class Network_Server (Thread):
 		
 	def send_event( self, event, connection ):
 		data = event.serialize( )
-		connection.sendall( struct.pack( '>i', len( data ) ) + data )
+		self.send_packet( connection, data )
 
 	def send_end_event( self, event, connection ):
 		data = "end " + Event_Manager.event_manager.get_id( event )
+		self.send_packet( connection, data )
+
+	@staticmethod
+	def send_packet( connection, data ):
 		connection.sendall( struct.pack( '>i', len( data ) ) + data )
 		
-	def recv_event( self, connection ):
+	@staticmethod
+	def recv_packet( connection ):
 		total_len = 0
 		total_data = []
 		size = sys.maxint
@@ -543,6 +575,10 @@ class Network_Server (Thread):
 			total_len = sum( [len( i ) for i in total_data] )
 			
 		data = ''.join( total_data )
+		return data
+
+	def recv_event( self, connection ):
+		data = self.recv_packet( connection )
 
 		tokens = data.split( " " )
 			
