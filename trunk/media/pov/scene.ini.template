@@ -1,11 +1,11 @@
 Input_File_Name = output.pov
-Output_File_Name = ../images/<name>.png
+Output_File_Name = <output>/<name>.png
 
 Library_Path = /home/billmoyers/povray/include/
 
-Pre_Scene_Command = echo "frames: <frames>, duration: <duration>" > ../info/<name>.info
-Pre_Frame_Command = echo "frame: %o" >> ../info/<name>.info
-Post_Frame_Command = cat ../frame.output >> ../info/<name>.info\;echo -n > ../frame.output
+Pre_Scene_Command = echo "frames: <frames>, duration: <duration>" > <output>/<name>.info
+Pre_Frame_Command = echo "frame: %o" >> <output>/<name>.info
+Post_Frame_Command = cat ../frame.output >> <output>/<name>.info;echo -n > ../frame.output
 
 Width = 320
 Height = 240

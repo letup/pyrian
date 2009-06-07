@@ -1,8 +1,19 @@
 #! /usr/bin/perl -w
 
+my ($pov, $iniin, $iniout, $output_dir) = @ARGV;
+
+if( !$pov || !$iniin || !$iniout || !$output_dir )
+{
+	print STDERR "Usage: $0 <pov> <ini-template> <output-ini> <output-dir>\n";
+	exit;
+}
+
+my $iniarg = "$iniout";
+$iniarg =~ s/.ini$//g;
+
 # Read information from scene file
 
-open( SCENE_POV, $ARGV[0] ) || die "failed opening scene pov\n";
+open( SCENE_POV, $pov ) || die "Failed opening '$pov'.\n";
 
 my $line					= undef;
 my $file_data				= "";
@@ -53,11 +64,11 @@ for( my $i = 0; $i < @animation_name_list; $i++ )
 
     # Open the output .ini
 
-    open( OUTPUT_INI, ">" . $ARGV[2] ) || die "failed opening output .ini";
+    open( OUTPUT_INI, ">" . $iniout ) || die "Failed opening output '$iniout'.";
     
     # Read the template ini file and insert values
 
-    open( INI_TEMPLATE, $ARGV[0] ) || die "failed opening .ini template\n";
+    open( INI_TEMPLATE, $iniin ) || die "Failed opening template '$iniin'.\n";
 
     my $last_frame = $animation_frames_list[$i] - 1;
 
@@ -67,6 +78,7 @@ for( my $i = 0; $i < @animation_name_list; $i++ )
 		if( $line =~ s/<frames>/$animation_frames_list[$i]/ ) {}
 		if( $line =~ s/<last_frame>/$last_frame/ ) {}
 		if( $line =~ s/<duration>/$animation_duration_list[$i]/ ) {}
+		if( $line =~ s/<output>/$output_dir/ ) {}
 	
 		print OUTPUT_INI $line;
     }
@@ -156,6 +168,9 @@ EOF
 
     close( OUTPUT_INI );
 
-	print "Rendering $animation_name_list[$i]...\n";
-    `povray scene +Ioutput.pov +FN16 +A +J +O$animation_name_list[$i].png +UA`;# >/dev/null 2>/dev/null`;
+	print "Rendering $output_dir/$animation_name_list[$i]...\n";
+	`povray $iniarg -D +Ioutput.pov +FN16 +A +J +O$output_dir/$animation_name_list[$i].png +UA`;	
+	
+	if( $? != 0 )
+	{ die "Povray failed.\n"; }
 }
