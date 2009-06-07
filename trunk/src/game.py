@@ -16,6 +16,30 @@ from pygame.locals import *
 import random
 import traceback
 
+def char_plus_shift( c ):
+	if c == "/": return "?"
+	elif c == "-": return "_"
+	elif c == ",": return "<"
+	elif c == ".": return ">"
+	elif c == ";": return ":"
+	elif c == "'": return "\""
+	elif c == "[": return "{"
+	elif c == "]": return "}"
+	elif c == "\\": return "|"
+	elif c == "=": return "+"
+	elif c == "0": return ")"
+	elif c == "1": return "!"
+	elif c == "2": return "@"
+	elif c == "3": return "#"
+	elif c == "4": return "$"
+	elif c == "5": return "%"
+	elif c == "6": return "^"
+	elif c == "7": return "&"
+	elif c == "8": return "*"
+	elif c == "9": return "("
+	elif c == "`": return "~"
+	else: return c.upper( )
+
 class Game:
 	def __init__( self, media_base, width=200, height=100 ):
 		pygame.init( )
@@ -53,7 +77,7 @@ class Game:
 				#print [(o.__class__.__name__, o.p) for o in self.level.objects]
 
 		elif isinstance( event, Message_Event ):
-			self.level.text_lines.append( (pygame.time.get_ticks( ), 
+			self.level.text_lines.insert( 0, (pygame.time.get_ticks( ), 
 				"%s: %s" % (event.name,	event.msg)) )
 
 class Ship (Object):
@@ -109,6 +133,7 @@ class Ship (Object):
 				for e in self.key_events[event.key]:
 					event_manager.end_event( e )
 				del self.key_events[event.key]
+				event_manager.queue_event( Damping_Force_Event( self, 0, c = 10 ) )
 
 class Camera:
 	def __init__( self, rect, focus ):
@@ -177,12 +202,6 @@ class Level:
 		self.objects.append( s )
 		event_manager.queue_event( s.get_create_event( ) )
 		
-#		event_manager.queue_event( Object_Create_Event( game, 0, 
-#			klass = Ship, 
-#			oid = None, 
-#			args = None,
-#			kwargs = {'p' : Numeric.array( [0.0, 0.0] )} ) )
-#		s = self.objects[0]
 		camera = Camera( Rect( 0, 0, w, h ), s )
 		
 		while True:
@@ -195,16 +214,20 @@ class Level:
 					Event_Manager.event_manager.shutdown( )
 					sys.exit( )
 				elif event.type == KEYDOWN and event.key == K_RETURN:
+					pygame.key.set_repeat( 500, 75 )
 					if self.msg_buffer != None:
 						if len( self.msg_buffer ) > 0:
 							event_manager.queue_event( Message_Event( game, 0, msg = self.msg_buffer, name = username ) )
 						self.msg_buffer = None
+						pygame.key.set_repeat( )
 					else:
 						self.msg_buffer = ""
-				elif event.type == KEYDOWN and self.msg_buffer != None:
+				elif event.type == KEYDOWN and self.msg_buffer != None:					
 					try:
 						if pygame.key.get_mods( ) & (KMOD_SHIFT|KMOD_CAPS):
-							self.msg_buffer += chr( event.key ).upper( )
+							self.msg_buffer += char_plus_shift( chr( event.key ) )
+						elif event.key == K_BACKSPACE:
+							self.msg_buffer = self.msg_buffer[:len( self.msg_buffer )-1]
 						else:
 							self.msg_buffer += chr( event.key )
 					except:
@@ -286,7 +309,8 @@ if __name__ == "__main__":
 		Linear_Force_Event,
 		Rotational_Force_Event,
 		Oriented_Force_Event,
-		Message_Event] )
+		Message_Event,
+		Damping_Force_Event] )
 
 	try:
 		game.run( )
