@@ -2,4 +2,4 @@
 
   # Event lifetimes
   # Separate force event functionality from the event manager
-  # Separate event log from the object into a handler class
+  # Separate event logic from the object into a handler class
