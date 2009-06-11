@@ -132,8 +132,11 @@ class Ship (Object):
 			if self.key_events.has_key( event.key ):
 				for e in self.key_events[event.key]:
 					event_manager.end_event( e )
+					if isinstance( e, Oriented_Force_Event ):
+						event_manager.queue_event( Damping_Force_Event( self, 0, c = -1 ) )
+					else:
+						event_manager.queue_event( Rotational_Damping_Force_Event( self, 0, c = -1 ) )
 				del self.key_events[event.key]
-				event_manager.queue_event( Damping_Force_Event( self, 0, c = 10 ) )
 
 class Camera:
 	def __init__( self, rect, focus ):

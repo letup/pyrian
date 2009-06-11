@@ -118,6 +118,12 @@ class Newtonian_Force_Event (Event):
 		@return The force vector.
 		"""
 		return 0
+		
+	def get_damping_coefficient( self, time ):
+		return 0
+
+	def get_rotational_damping_coefficient( self, time ):
+		return 0
 	
 class Linear_Force_Event (Newtonian_Force_Event):
 	"""
@@ -208,12 +214,23 @@ class Damping_Force_Event (Newtonian_Force_Event):
 		Newtonian_Force_Event.__init__( self, dest, dtime )
 		self.c = kwargs['c']
 		
-	def get_linear_force( self, time ):
+	def get_damping_coefficient( self, time ):
+		return self.c
+
+class Rotational_Damping_Force_Event (Newtonian_Force_Event):
+	__slots__ = ['c']
+	
+	def __init__( self, dest, dtime, **kwargs ):
 		"""
-		Get the force vector induced by this event.
-		@return The force vector.
+		Basic constructor.
+		@param kwargs Required keys are:
+			- c : Damping coefficient.
 		"""
-		return array( [0.0, 0.0], 'f' )
+		Newtonian_Force_Event.__init__( self, dest, dtime )
+		self.c = kwargs['c']
+		
+	def get_rotational_damping_coefficient( self, time ):
+		return self.c
 
 class Object:
 	__slots__ = ['p','v','rp','rv']
@@ -273,14 +290,22 @@ class Object:
 		@param time The simulation time. 
 		@return A @ref Numeric.array containing the position.
 		"""
-		a = zeros( (2,), 'float' )
+		a0 = zeros( (2,), 'float' )
+		k = 0
 		
 		for e in self.forces:
 			if isinstance( e, Newtonian_Force_Event ):
-				a += e.get_linear_force( time )
-				
+				a0 += e.get_linear_force( time )				
+				k += e.get_damping_coefficient( time )
+		
+		v0 = self.v
+		m = 1
+		
 		t = time - self.commit_time
-		return self.p + (self.v * t) + a * (t**2.0)
+		if k == 0:
+			return self.p + t*v0 + t*t*a0
+		else:
+			return -m*(-k*v0 - m*a0)*math.exp( k*t/m )/(k*k) - m*a0*t/k + self.p + m*(-k*v0 - m*a0)/(k*k)
 
 	def get_velocity( self, time ):
 		"""
@@ -288,14 +313,22 @@ class Object:
 		@param time The simulation time. 
 		@return A @ref Numeric.array containing the position.
 		"""
-		a = zeros( (2,), 'float' )
+		a0 = zeros( (2,), 'float' )
+		k = 0
 		
 		for e in self.forces:
 			if isinstance( e, Newtonian_Force_Event ):
-				a += e.get_linear_force( time )				
-				
+				a0 += e.get_linear_force( time )				
+				k += e.get_damping_coefficient( time )
+		
+		v0 = self.v
+		m = 1
+		
 		t = time - self.commit_time
-		return self.v + a * t
+		if k == 0:
+			return v0 + t*a0
+		else:
+			return ((-k*v0 - m*a0)*math.exp( k*t/m ) + m*a0) / (-k)
 
 	def get_speed( self, time ):
 		"""
@@ -312,14 +345,23 @@ class Object:
 		@param time The simulation time. 
 		@return The orientation between 0 and 2*\pi radians.
 		"""
-		ra = 0
+		ra0 = 0
+		rk = 0
 		
-		for e in self.forces:		
-			if isinstance( e, Rotational_Force_Event ):
-				ra += e.get_rotational_force( time )
+		for e in self.forces:
+			if isinstance( e, Newtonian_Force_Event ):
+				ra0 += e.get_rotational_force( time )				
+				rk += e.get_rotational_damping_coefficient( time )
+		
+		rv0 = self.rv
+		rm = 1
 		
 		t = time - self.commit_time
-		rp = self.rp + (self.rv * t) + ra * (t**2.0)
+		if rk == 0:
+			rp = self.rp + t*rv0 + t*t*ra0
+		else:
+			rp = self.rp - (-rm*(-rk*rv0 - rm*ra0)*math.exp( rk*t/rm )/(rk*rk) - rm*ra0*t/rk + rm*(-rk*rv0 - rm*ra0)/(rk*rk))
+		
 		tp = 2.0*math.pi
 		while rp > tp: rp -= tp
 		while rp < 0: rp += tp
@@ -340,14 +382,22 @@ class Object:
 		@param time The simulation time. 
 		@return The rotational velocity in radians/second.
 		"""
-		ra = 0
+		ra0 = 0
+		rk = 0
 		
-		for e in self.forces:		
+		for e in self.forces:
 			if isinstance( e, Newtonian_Force_Event ):
-				ra += e.get_rotational_force( time )
+				ra0 += e.get_rotational_force( time )				
+				rk += e.get_rotational_damping_coefficient( time )
+		
+		rv0 = self.rv
+		rm = 1
 		
 		t = time - self.commit_time
-		return self.rv + ra * t
+		if rk == 0:
+			return rv0 + t*ra0
+		else:
+			return ((-rk*rv0 - rm*ra0)*math.exp( rk*t/rm ) + rm*ra0) / rk
 		
 	def commit_properties( self, time ):
 		"""
