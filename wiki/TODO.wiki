@@ -1,4 +1,5 @@
 #summary Development TODO list
 
-  # Finish damping force event
   # Event lifetimes
+  # Separate force event functionality from the event manager
+  # Separate event log from the object into a handler class
