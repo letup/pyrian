@@ -80,6 +80,9 @@ class Game:
 			self.level.text_lines.insert( 0, (pygame.time.get_ticks( ), 
 				"%s: %s" % (event.name,	event.msg)) )
 
+	def end_event( self, event, time ):
+		pass
+
 class Ship (Object):
 	__slots__ = ['name']
 
@@ -110,21 +113,21 @@ class Ship (Object):
 			print Event_Manager.event_manager.objects
 			if event.key == K_UP: 
 				self.key_events[K_UP] = [
-					Oriented_Force_Event( self, 0, m = 100.0, ro = 0 )]
+					Oriented_Force_Event( self, 0, Event.INDEFINITE, m = 100.0, ro = 0 )]
 				for e in self.key_events[K_UP]:
 					event_manager.queue_event( e )
 				
 			elif event.key == K_LEFT:
 				self.key_events[K_LEFT] = [
-					Rotational_Force_Event( self, 0, ra = 3.0 ),
-					Rotational_Force_Event( self, 0.6, ra = -3.0 )]
+					Rotational_Force_Event( self, 0, Event.INDEFINITE, ra = 3.0 ),
+					Rotational_Force_Event( self, 0.6, Event.INDEFINITE, ra = -3.0 )]
 				event_manager.queue_event( self.key_events[K_LEFT][0] )
 				event_manager.queue_event( self.key_events[K_LEFT][1] )
 
 			elif event.key == K_RIGHT:
 				self.key_events[K_RIGHT] = [
-					Rotational_Force_Event( self, 0, ra = -3.0 ),
-					Rotational_Force_Event( self, 0.6, ra = 3.0 )]
+					Rotational_Force_Event( self, 0, Event.INDEFINITE, ra = -3.0 ),
+					Rotational_Force_Event( self, 0.6, Event.INDEFINITE, ra = 3.0 )]
 				event_manager.queue_event( self.key_events[K_RIGHT][0] )
 				event_manager.queue_event( self.key_events[K_RIGHT][1] )
 
@@ -133,9 +136,9 @@ class Ship (Object):
 				for e in self.key_events[event.key]:
 					event_manager.end_event( e )
 					if isinstance( e, Oriented_Force_Event ):
-						event_manager.queue_event( Damping_Force_Event( self, 0, c = -1 ) )
+						event_manager.queue_event( Damping_Force_Event( self, 0, 1.0, c = -10 ) )
 					else:
-						event_manager.queue_event( Rotational_Damping_Force_Event( self, 0, c = -1 ) )
+						event_manager.queue_event( Rotational_Damping_Force_Event( self, 0, 1.0, c = -5 ) )
 				del self.key_events[event.key]
 
 class Camera:
@@ -220,7 +223,7 @@ class Level:
 					pygame.key.set_repeat( 500, 75 )
 					if self.msg_buffer != None:
 						if len( self.msg_buffer ) > 0:
-							event_manager.queue_event( Message_Event( game, 0, msg = self.msg_buffer, name = username ) )
+							event_manager.queue_event( Message_Event( game, 0, 0, msg = self.msg_buffer, name = username ) )
 						self.msg_buffer = None
 						pygame.key.set_repeat( )
 					else:
@@ -313,7 +316,8 @@ if __name__ == "__main__":
 		Rotational_Force_Event,
 		Oriented_Force_Event,
 		Message_Event,
-		Damping_Force_Event] )
+		Damping_Force_Event,
+		Rotational_Damping_Force_Event] )
 
 	try:
 		game.run( )
