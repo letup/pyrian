@@ -16,22 +16,25 @@ class Event:
 	Base class of events.
 	"""
 	
-	__slots__ = ['dest', 'source_connection', 'dtime','alive']
+	INDEFINITE = -1.0
 	
-	def __init__( self, dest, dtime ):
+	__slots__ = ['dest', 'source_connection', 'game_lifetime', 'system_lifetime', 'alive']
+	
+	def __init__( self, dest, stime, etime ):
 		"""
 		Constructor.
 		@param dest The destination object for this event.
 		"""
 		self.dest = dest
 		self.source_connection = None
-		self.dtime = dtime
+		self.game_lifetime = (stime, etime)
+		self.system_lifetime = [stime, etime]
 		self.alive = True
 		
 	def serialize( self ):
 		spec_data = {
 			'event_id' : Event_Manager.event_manager.get_id( self ),
-			'event_dtime' : self.dtime,
+			'event_lifetime' : self.game_lifetime,
 			'event_class' : self.__class__.__name__,
 			'dest_id' : Event_Manager.event_manager.get_id( self.dest )}
 		
@@ -44,7 +47,7 @@ class Event:
 	def __repr__( self ):
 		spec_data = {
 			'event_id' : Event_Manager.event_manager.get_id( self ),
-			'event_dtime' : self.dtime,
+			'event_lifetime' : self.game_lifetime,
 			'dest_id' : Event_Manager.event_manager.get_id( self.dest )}
 		
 		for k in self.__slots__:
@@ -59,9 +62,9 @@ class Event:
 		try:
 			msg = pickle.loads( msg )
 			dest = Event_Manager.event_manager.get_object( msg['dest_id'] )
-			dtime = msg['event_dtime']
+			lifetime = msg['event_lifetime']
 			klass = Event_Manager.event_manager.get_event_class( msg['event_class'] )
-			e = klass( dest, dtime, **msg )
+			e = klass( dest, *lifetime, **msg )
 			Event_Manager.event_manager.set_object_id( e, msg['event_id'] )
 			return e
 		except:
@@ -73,8 +76,8 @@ class Message_Event (Event):
 	"""
 	__slots__ = ['msg', 'name']
 	
-	def __init__( self, dest, dtime, **kwargs ):
-		Event.__init__( self, dest, dtime )
+	def __init__( self, dest, stime, etime, **kwargs ):
+		Event.__init__( self, dest, stime, etime )
 		self.name = kwargs['name']
 		self.msg = kwargs['msg']
 		
@@ -85,7 +88,7 @@ class Object_Create_Event (Event):
 
 	__slots__ = ['klass', 'oid', 'args', 'kwargs']
 	
-	def __init__( self, dest, dtime, **kwargs ):
+	def __init__( self, dest, stime, etime, **kwargs ):
 		"""
 		Constructor.
 		@param kwargs Required keywords are:
@@ -94,7 +97,7 @@ class Object_Create_Event (Event):
 			- oid : Event_Manager ID to assign to the created object.
 			- kwargs : Arguments to class constructor.
 		"""
-		Event.__init__( self, dest, dtime )
+		Event.__init__( self, dest, stime, etime )
 		self.klass = kwargs['klass']
 		self.args = kwargs['args']
 		self.oid = kwargs['oid']
@@ -132,14 +135,14 @@ class Linear_Force_Event (Newtonian_Force_Event):
 
 	__slots__ = ['vec']
 	
-	def __init__( self, dest, dtime, **kwargs ):
+	def __init__( self, dest, stime, etime, **kwargs ):
 		"""
 		Basic constructor.
 		@param dest The destination object.
 		@param kwargs Required keys are:
 			- vec : A 2D @ref Numeric.array with the force vector.
 		"""
-		Newtonian_Force_Event.__init__( self, dest, dtime )
+		Newtonian_Force_Event.__init__( self, dest, stime, etime )
 		self.vec = kwargs['vec']
 		
 	def get_linear_force( self, time ):
@@ -156,14 +159,14 @@ class Rotational_Force_Event (Newtonian_Force_Event):
 
 	__slots__ = ['ra']
 	
-	def __init__( self, dest, dtime, **kwargs ):
+	def __init__( self, dest, stime, etime, **kwargs ):
 		"""
 		Basic constructor.
 		@param dest The destination object.
 		@param kwargs Required keys are:
 			- ra : The magnitude of the rotational force.
 		"""
-		Newtonian_Force_Event.__init__( self, dest, dtime )
+		Newtonian_Force_Event.__init__( self, dest, stime, etime )
 		self.ra = kwargs['ra']
 		
 	def get_rotational_force( self, time ):
@@ -181,14 +184,14 @@ class Oriented_Force_Event (Newtonian_Force_Event):
 
 	__slots__ = ['m', 'ro']
 	
-	def __init__( self, dest, dtime, **kwargs ):
+	def __init__( self, dest, stime, etime, **kwargs ):
 		"""
 		Basic constructor.
 		@param kwargs Required keys are:
 			- m : Magnitude of the force.
 			- ro : Offset from the orientation in radians.
 		"""
-		Newtonian_Force_Event.__init__( self, dest, dtime )
+		Newtonian_Force_Event.__init__( self, dest, stime, etime )
 		self.m = float( kwargs['m'] )
 		self.ro = kwargs['ro']
 		
@@ -205,13 +208,13 @@ class Oriented_Force_Event (Newtonian_Force_Event):
 class Damping_Force_Event (Newtonian_Force_Event):
 	__slots__ = ['c']
 	
-	def __init__( self, dest, dtime, **kwargs ):
+	def __init__( self, dest, stime, etime, **kwargs ):
 		"""
 		Basic constructor.
 		@param kwargs Required keys are:
 			- c : Damping coefficient.
 		"""
-		Newtonian_Force_Event.__init__( self, dest, dtime )
+		Newtonian_Force_Event.__init__( self, dest, stime, etime )
 		self.c = kwargs['c']
 		
 	def get_damping_coefficient( self, time ):
@@ -220,13 +223,13 @@ class Damping_Force_Event (Newtonian_Force_Event):
 class Rotational_Damping_Force_Event (Newtonian_Force_Event):
 	__slots__ = ['c']
 	
-	def __init__( self, dest, dtime, **kwargs ):
+	def __init__( self, dest, stime, etime, **kwargs ):
 		"""
 		Basic constructor.
 		@param kwargs Required keys are:
 			- c : Damping coefficient.
 		"""
-		Newtonian_Force_Event.__init__( self, dest, dtime )
+		Newtonian_Force_Event.__init__( self, dest, stime, etime )
 		self.c = kwargs['c']
 		
 	def get_rotational_damping_coefficient( self, time ):
@@ -427,7 +430,7 @@ class Object:
 			oid = id( self )
 				
 		return Object_Create_Event( 
-			Event_Manager.event_manager.game, 0,
+			Event_Manager.event_manager.game, 0, 0,
 			klass = self.__class__,
 			oid = oid,
 			args = None,
@@ -469,17 +472,19 @@ class Local_Event_Manager (Event_Manager):
 		
 		self.start_time = pygame.time.get_ticks( )
 		self.event_queue = []
+		pygame.time.set_timer( pygame.USEREVENT+1, 100 )
 		
 	def queue_event( self, event ):
-		try:
-			if event.dtime > 0:
-				self.event_queue.append( event )
-				pygame.time.set_timer( pygame.USEREVENT+1, int( event.dtime*1000.0 ) )
-			else:
-				event.dest.execute_event( event, self.get_time( ) )
-		except Not_Executable_Exception, ex:
-			print "Failed executing event:", ex
+		self.event_queue.append( event )
+#		pygame.time.set_timer( pygame.USEREVENT+1, int( event.system_lifetime[0]+1 ) )
+#		if event.system_lifetime[1] >= 0:
+#			pygame.time.set_timer( pygame.USEREVENT+1, int( event.system_lifetime[1]+1 ) )
 
+		if event.system_lifetime[0] >= 0:
+			event.system_lifetime[0] += self.get_time( )
+		if event.system_lifetime[1] >= 0:
+			event.system_lifetime[1] += self.get_time( )
+		
 	def get_time( self ):
 		return (pygame.time.get_ticks( ) - self.start_time) / 1000.0
 	
@@ -487,14 +492,24 @@ class Local_Event_Manager (Event_Manager):
 		oid = self.get_id( event )
 		del self.objects[event]
 		del self.ids[oid]
+		self.event_queue.remove( event )
 		event.dest.end_event( event, self.get_time( ) )
 		
 	def handle_pygame_event( self, event ):
-		if len( self.event_queue ) > 0:
-			e = self.event_queue.pop( )
-			if e.alive:
-				self.queue_event( e )
-				#e.dest.execute_event( e, self.get_time( ) )
+		tick = self.get_time( )
+		
+		for e in self.event_queue:
+			#print e.__class__.__name__, e.system_lifetime, tick
+			if e.system_lifetime[0] >= 0 and e.system_lifetime[0] <= tick:
+				try:
+					e.system_lifetime[0] = Event.INDEFINITE
+					e.dest.execute_event( e, self.get_time( ) )
+					
+				except Not_Executable_Exception, ex:
+					print "Failed executing event:", ex
+			
+			elif e.system_lifetime[1] >= 0 and e.system_lifetime[1] <= tick:
+				self.end_event( e, forced = False )
 
 class Network_Request_Handler_Factory:
 	@staticmethod
@@ -594,6 +609,7 @@ class Network_Server (Thread):
 		self.send_packet( connection, data )
 
 	def send_end_event( self, event, connection ):
+		print "Network_Server.send_end_event( %s )" % Event_Manager.event_manager.get_id( event )
 		data = "end " + Event_Manager.event_manager.get_id( event )
 		self.send_packet( connection, data )
 
@@ -636,6 +652,7 @@ class Network_Server (Thread):
 			return
 		
 		if tokens[0] == "end":
+			print "Network_Server.recv( end %s )" % tokens[1]
 			Event_Manager.event_manager.end_event(
 				Event_Manager.event_manager.get_object( tokens[1] ) )
 				
@@ -698,14 +715,16 @@ class Naive_Network_Event_Manager (Local_Event_Manager):
 				print "Network_Event_Manager.send( %s )" % event
 				self.server.send_event( event, c )
 
-	def end_event( self, event ):
+	def end_event( self, event, **kwargs ):
 		"""
 		End an event.
 		@param event The local event to end.
 		"""
-		for c in self.server.get_connections( ):
-			if event.source_connection != c:
-				self.server.send_end_event( event, c )
+		
+		if not kwargs.has_key( 'forced' ) or kwargs['forced']:
+			for c in self.server.get_connections( ):
+				if event.source_connection != c:
+					self.server.send_end_event( event, c )
 				
 		Local_Event_Manager.end_event( self, event )
 
