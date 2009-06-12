@@ -1,5 +1,5 @@
 #summary Development TODO list
 
-  # Event lifetimes
+  # States are getting too far apart in network games
   # Separate force event functionality from the event manager
   # Separate event logic from the object into a handler class
