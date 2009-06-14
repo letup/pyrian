@@ -18,7 +18,7 @@ class Event:
 	
 	INDEFINITE = -1.0
 	
-	__slots__ = ['dest', 'source_connection', 'game_lifetime', 'system_lifetime', 'alive']
+	__slots__ = ['dest', 'source_connection', 'game_lifetime', 'system_lifetime', 'alive', 'local']
 	
 	def __init__( self, dest, stime, etime ):
 		"""
@@ -30,6 +30,13 @@ class Event:
 		self.game_lifetime = (stime, etime)
 		self.system_lifetime = [stime, etime]
 		self.alive = True
+		self.local = False
+		
+	def set_is_local( self, local ):
+		self.local = local
+		
+	def is_local( self ):
+		return self.local
 		
 	def serialize( self ):
 		spec_data = {
@@ -45,17 +52,7 @@ class Event:
 		return pickle.dumps( spec_data )
 
 	def __repr__( self ):
-		spec_data = {
-			'event_id' : Event_Manager.event_manager.get_id( self ),
-			'event_lifetime' : self.game_lifetime,
-			'dest_id' : Event_Manager.event_manager.get_id( self.dest )}
-		
-		for k in self.__slots__:
-			if k not in Event.__slots__:
-				spec_data[k] = self.__dict__[k]
-
 		return '%s' % (self.__class__.__name__)
-		#return '%s( %s )' % (self.__class__.__name__, spec_data)
 			
 	@staticmethod
 	def deserialize( msg ):
@@ -69,6 +66,24 @@ class Event:
 			return e
 		except:
 			traceback.print_exc( )
+			
+class End_Event (Event):
+	__slots__ = ['event_id']
+
+	def __init__( self, dest, dtime, **kwargs ):
+		Event.__init__( self, dest, dtime, dtime )
+		self.forced = True
+		
+		if kwargs.has_key( 'forced' ):
+			self.forced = kwargs['forced']
+			
+		self.event_id = Event_Manager.event_manager.get_id( kwargs['event'] )
+
+	def get_event( self ):
+		return Event_Manager.event_manager.get_object( self.event_id )
+
+	def __repr__( self ):
+		return '%s( %s )' % (self.__class__.__name__, self.event_id)
 
 class Message_Event (Event):
 	"""
@@ -76,8 +91,8 @@ class Message_Event (Event):
 	"""
 	__slots__ = ['msg', 'name']
 	
-	def __init__( self, dest, stime, etime, **kwargs ):
-		Event.__init__( self, dest, stime, etime )
+	def __init__( self, dest, dtime, **kwargs ):
+		Event.__init__( self, dest, dtime, dtime )
 		self.name = kwargs['name']
 		self.msg = kwargs['msg']
 		
@@ -88,7 +103,7 @@ class Object_Create_Event (Event):
 
 	__slots__ = ['klass', 'oid', 'args', 'kwargs']
 	
-	def __init__( self, dest, stime, etime, **kwargs ):
+	def __init__( self, dest, dtime, **kwargs ):
 		"""
 		Constructor.
 		@param kwargs Required keywords are:
@@ -97,7 +112,7 @@ class Object_Create_Event (Event):
 			- oid : Event_Manager ID to assign to the created object.
 			- kwargs : Arguments to class constructor.
 		"""
-		Event.__init__( self, dest, stime, etime )
+		Event.__init__( self, dest, dtime, dtime )
 		self.klass = kwargs['klass']
 		self.args = kwargs['args']
 		self.oid = kwargs['oid']
@@ -269,24 +284,15 @@ class Object:
 			self.commit_properties( time )
 			self.forces.append( e )
 
-		else:
-			raise Not_Executable_Exception
-
-	def end_event( self, e, time ):
-		"""
-		End execution of a simulation event.
-		@param e The event.
-		"""
-		if isinstance( e, Newtonian_Force_Event ):
+		elif isinstance( e, End_Event ):
+			e = e.get_event( )
 			if e in self.forces:
 				self.commit_properties( time )
 				self.forces.remove( e )
-			else:
-				e.alive = False
-			
+
 		else:
 			raise Not_Executable_Exception
-	
+
 	def get_position( self, time ):
 		"""
 		Get the position of this object at a time.
@@ -430,7 +436,7 @@ class Object:
 			oid = id( self )
 				
 		return Object_Create_Event( 
-			Event_Manager.event_manager.game, 0, 0,
+			Event_Manager.event_manager.game, 0,
 			klass = self.__class__,
 			oid = oid,
 			args = None,
@@ -488,13 +494,6 @@ class Local_Event_Manager (Event_Manager):
 	def get_time( self ):
 		return (pygame.time.get_ticks( ) - self.start_time) / 1000.0
 	
-	def end_event( self, event ):
-		oid = self.get_id( event )
-		del self.objects[event]
-		del self.ids[oid]
-		self.event_queue.remove( event )
-		event.dest.end_event( event, self.get_time( ) )
-		
 	def handle_pygame_event( self, event ):
 		tick = self.get_time( )
 		
@@ -503,13 +502,33 @@ class Local_Event_Manager (Event_Manager):
 			if e.system_lifetime[0] >= 0 and e.system_lifetime[0] <= tick:
 				try:
 					e.system_lifetime[0] = Event.INDEFINITE
+					
+					### Handle special events. ###
+					
 					e.dest.execute_event( e, self.get_time( ) )
 					
+					if isinstance( e, End_Event ):
+						ev = e.get_event( )
+						del self.objects[ev]
+						del self.ids[e.event_id]
+						self.event_queue.remove( ev )
+
+						oid = self.get_id( e )
+						del self.objects[e]
+						del self.ids[oid]
+						self.event_queue.remove( e )
+
 				except Not_Executable_Exception, ex:
 					print "Failed executing event:", ex
 			
 			elif e.system_lifetime[1] >= 0 and e.system_lifetime[1] <= tick:
-				self.end_event( e, forced = False )
+				ee = End_Event( e.dest, 0, event = e )
+				e.dest.execute_event( ee, self.get_time( ) )
+					
+				oid = self.get_id( e )
+				del self.objects[e]
+				del self.ids[oid]
+				self.event_queue.remove( e )
 
 class Network_Request_Handler_Factory:
 	@staticmethod
@@ -608,11 +627,6 @@ class Network_Server (Thread):
 		data = event.serialize( )
 		self.send_packet( connection, data )
 
-	def send_end_event( self, event, connection ):
-		print "Network_Server.send_end_event( %s )" % Event_Manager.event_manager.get_id( event )
-		data = "end " + Event_Manager.event_manager.get_id( event )
-		self.send_packet( connection, data )
-
 	@staticmethod
 	def send_packet( connection, data ):
 		connection.sendall( struct.pack( '>i', len( data ) ) + data )
@@ -646,21 +660,10 @@ class Network_Server (Thread):
 	def recv_event( self, connection ):
 		data = self.recv_packet( connection )
 
-		tokens = data.split( " " )
-			
-		if len( tokens ) < 1:
-			return
-		
-		if tokens[0] == "end":
-			print "Network_Server.recv( end %s )" % tokens[1]
-			Event_Manager.event_manager.end_event(
-				Event_Manager.event_manager.get_object( tokens[1] ) )
-				
-		else:
-			e = Event.deserialize( data )
-			e.source_connection = connection
-			print "Network_Server.recv( %s, %s )" % (e, connection)
-			Event_Manager.event_manager.queue_event( e )
+		e = Event.deserialize( data )
+		e.source_connection = connection
+		print "Network_Server.recv( %s, %s )" % (e, connection)
+		Event_Manager.event_manager.queue_event( e )
 
 class Naive_Network_Event_Manager (Local_Event_Manager):
 	"""
@@ -710,23 +713,11 @@ class Naive_Network_Event_Manager (Local_Event_Manager):
 		if not self.objects.has_key( event ):
 			self.set_object_id( event, id( event ) )
 
-		for c in self.server.get_connections( ):
-			if c != event.source_connection:
-				print "Network_Event_Manager.send( %s )" % event
-				self.server.send_event( event, c )
-
-	def end_event( self, event, **kwargs ):
-		"""
-		End an event.
-		@param event The local event to end.
-		"""
-		
-		if not kwargs.has_key( 'forced' ) or kwargs['forced']:
+		if not event.is_local( ):
 			for c in self.server.get_connections( ):
-				if event.source_connection != c:
-					self.server.send_end_event( event, c )
-				
-		Local_Event_Manager.end_event( self, event )
+				if c != event.source_connection:
+					print "Network_Event_Manager.send( %s )" % event
+					self.server.send_event( event, c )
 
 	def get_event_class( self, class_name ):
 		return self.event_classes[class_name]
