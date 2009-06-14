@@ -80,9 +80,6 @@ class Game:
 			self.level.text_lines.insert( 0, (pygame.time.get_ticks( ), 
 				"%s: %s" % (event.name,	event.msg)) )
 
-	def end_event( self, event, time ):
-		pass
-
 class Ship (Object):
 	__slots__ = ['name']
 
@@ -134,7 +131,7 @@ class Ship (Object):
 		elif event.type == KEYUP:
 			if self.key_events.has_key( event.key ):
 				for e in self.key_events[event.key]:
-					event_manager.end_event( e )
+					event_manager.queue_event( End_Event( e.dest, 0, event = e ) )
 					if isinstance( e, Oriented_Force_Event ):
 						event_manager.queue_event( Damping_Force_Event( self, 0, 1.0, c = -10 ) )
 					else:
@@ -223,7 +220,7 @@ class Level:
 					pygame.key.set_repeat( 500, 75 )
 					if self.msg_buffer != None:
 						if len( self.msg_buffer ) > 0:
-							event_manager.queue_event( Message_Event( game, 0, 0, msg = self.msg_buffer, name = username ) )
+							event_manager.queue_event( Message_Event( game, 0, msg = self.msg_buffer, name = username ) )
 						self.msg_buffer = None
 						pygame.key.set_repeat( )
 					else:
