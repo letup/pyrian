@@ -69,8 +69,8 @@ class Game:
 				print "Game.create_object( %s )" % event.klass
 				o = event.klass( **event.kwargs )
 				if event.oid == None:
-					game.event_manager.set_object_id( o, str( id( o ) ) )
-					event.oid = str( id( o ) )
+					game.event_manager.set_object_id( o, str( event_manager.new_id( ) ) )
+					event.oid = str( event_manager.new_id( ) )
 				else:
 					game.event_manager.set_object_id( o, str( event.oid ) )
 				self.level.objects.append( o )
@@ -96,7 +96,7 @@ class Ship (Object):
 		self.__dict__.update( kwargs )
 
 	def __repr__( self ):
-		return "Ship( %s, %s )" % (self.name, id(self) )
+		return "Ship( %s, %s )" % (self.name, event_manager.get_id( self ))
 		
 	def draw( self, surface, c ):
 		self.anim.add_time( 0, game.get_dt( ), cyclic = True )
@@ -131,7 +131,7 @@ class Ship (Object):
 		elif event.type == KEYUP:
 			if self.key_events.has_key( event.key ):
 				for e in self.key_events[event.key]:
-					event_manager.queue_event( End_Event( e.dest, 0, event = e ) )
+					event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )
 					if isinstance( e, Oriented_Force_Event ):
 						event_manager.queue_event( Damping_Force_Event( self, 0, 1.0, c = -10 ) )
 					else:
@@ -201,7 +201,7 @@ class Level:
 		h = surface.get_size( )[1]
 		
 		s = Ship( p = Numeric.array( [0.0, 0.0] ) )
-		event_manager.set_object_id( s, id( s ) )
+		event_manager.set_object_id( s, event_manager.new_id( ) )
 		self.objects.append( s )
 		event_manager.queue_event( s.get_create_event( ) )
 		
@@ -267,6 +267,7 @@ class Level:
 			for o in self.objects:
 				p = o.get_position( event_manager.get_time( ) )
 				rp = o.get_orientation( event_manager.get_time( ) )
+				#print "%s = %s" % (o, p)
 				text = font.render( "(%d, %d) (%.2f)" % 
 					(p[0], p[1], rp), 1, (255, 255, 255) )
 				surface.blit( text, (10, 590 - (oi * 20)) )
@@ -314,7 +315,9 @@ if __name__ == "__main__":
 		Oriented_Force_Event,
 		Message_Event,
 		Damping_Force_Event,
-		Rotational_Damping_Force_Event] )
+		Rotational_Damping_Force_Event,
+		End_Event,
+		Object_Commit_Event] )
 
 	try:
 		game.run( )
