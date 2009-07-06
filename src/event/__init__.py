@@ -7,6 +7,7 @@ import traceback
 import pickle
 import struct
 import sys
+import random
 
 from Numeric import array, zeros
 import math
@@ -61,29 +62,35 @@ class Event:
 			dest = Event_Manager.event_manager.get_object( msg['dest_id'] )
 			lifetime = msg['event_lifetime']
 			klass = Event_Manager.event_manager.get_event_class( msg['event_class'] )
-			e = klass( dest, *lifetime, **msg )
+			try:
+				e = klass( dest, *lifetime, **msg )
+			except:
+				e = klass( dest, lifetime[0], **msg )
 			Event_Manager.event_manager.set_object_id( e, msg['event_id'] )
 			return e
 		except:
 			traceback.print_exc( )
 			
 class End_Event (Event):
-	__slots__ = ['event_id']
+	__slots__ = ['end_id']
 
 	def __init__( self, dest, dtime, **kwargs ):
 		Event.__init__( self, dest, dtime, dtime )
 		self.forced = True
-		
-		if kwargs.has_key( 'forced' ):
-			self.forced = kwargs['forced']
-			
-		self.event_id = Event_Manager.event_manager.get_id( kwargs['event'] )
+		self.end_id = kwargs['end_id']
 
 	def get_event( self ):
-		return Event_Manager.event_manager.get_object( self.event_id )
+		return Event_Manager.event_manager.get_object( self.end_id )
 
 	def __repr__( self ):
-		return '%s( %s )' % (self.__class__.__name__, self.event_id)
+		return '%s( %s )' % (self.__class__.__name__, self.end_id)
+
+class Object_Commit_Event (Event):
+	__slots__ = ['state']
+
+	def __init__( self, dest, dtime, **kwargs ):
+		Event.__init__( self, dest, dtime, dtime )
+		self.state = kwargs['state']
 
 class Message_Event (Event):
 	"""
@@ -262,7 +269,7 @@ class Object:
 		@li rp - Set the rotational orientation.
 		@li rv - Set the rotational velocity.
 		"""
-		
+
 		if kwargs.has_key( 'p' ): self.p = kwargs['p']
 		else: self.p = zeros( (2,), 'float' )
 		if kwargs.has_key( 'v' ): self.p = kwargs['v']
@@ -281,14 +288,17 @@ class Object:
 		@param e The event.
 		"""
 		if isinstance( e, Newtonian_Force_Event ):
-			self.commit_properties( time )
+			self.commit_properties( time, e )
 			self.forces.append( e )
 
 		elif isinstance( e, End_Event ):
 			e = e.get_event( )
 			if e in self.forces:
-				self.commit_properties( time )
+				self.commit_properties( time, e )
 				self.forces.remove( e )
+
+		elif isinstance( e, Object_Commit_Event ):
+			self.set_state( e.state, time )
 
 		else:
 			raise Not_Executable_Exception
@@ -408,15 +418,36 @@ class Object:
 		else:
 			return ((-rk*rv0 - rm*ra0)*math.exp( rk*t/rm ) + rm*ra0) / rk
 		
-	def commit_properties( self, time ):
+	def commit_properties( self, time, commit_event ):
 		"""
 		Commit the current Newtonian properties of this object.
 		@param time The simulation time.
+		@param commit_event Event causing the commit.
 		"""
+		
 		self.p = self.get_position( time )
 		self.v = self.get_velocity( time )
 		self.rp = self.get_orientation( time )
 		self.rv = self.get_rotational_velocity( time )
+		self.commit_time = time
+		if commit_event.source_connection == None:
+			e = Object_Commit_Event( self, 0, state = self.get_state( ) )
+			Event_Manager.event_manager.queue_event( e )
+
+	def get_state( self ):
+		kwargs = {}
+		
+		for slot in self.__dict__.keys( ):
+			if slot in (self.__slots__,'p','v','rp','rv'):
+				kwargs[slot] = self.__dict__[slot]
+
+		#print 'get_state( %s ) = %s' % (self, kwargs)
+
+		return kwargs
+		
+	def set_state( self, state, time ):
+		#print 'set_state( %s, %s )' % (self, state)
+		self.__dict__.update( state )
 		self.commit_time = time
 
 	def get_create_event( self ):
@@ -433,7 +464,7 @@ class Object:
 		try:
 			oid = Event_Manager.event_manager.get_id( self )
 		except:
-			oid = id( self )
+			oid = Event_Manager.event_manager.next_id( self )
 				
 		return Object_Create_Event( 
 			Event_Manager.event_manager.game, 0,
@@ -460,6 +491,8 @@ class Event_Manager:
 		self.ids = {}
 		Event_Manager.event_manager = self
 		self.set_object_id( game, 0 )
+		self.next_id = 0
+		self.id_str = "".join( [chr( random.randint( 97, 122 ) ) for i in range( 3 )] )
 		
 	def get_id( self, object ):
 		return self.objects[object]
@@ -472,6 +505,10 @@ class Event_Manager:
 		self.ids[str( id )] = object
 		print 'Event_Manager.set_object_id( %s, %s )' % (object, id)
 
+	def new_id( self ):
+		self.next_id += 1
+		return self.id_str + str( self.next_id )
+
 class Local_Event_Manager (Event_Manager):
 	def __init__( self, game ):
 		Event_Manager.__init__( self, game )
@@ -479,6 +516,7 @@ class Local_Event_Manager (Event_Manager):
 		self.start_time = pygame.time.get_ticks( )
 		self.event_queue = []
 		pygame.time.set_timer( pygame.USEREVENT+1, 100 )
+		self.lock = Lock( )
 		
 	def queue_event( self, event ):
 		self.event_queue.append( event )
@@ -510,7 +548,7 @@ class Local_Event_Manager (Event_Manager):
 					if isinstance( e, End_Event ):
 						ev = e.get_event( )
 						del self.objects[ev]
-						del self.ids[e.event_id]
+						del self.ids[e.end_id]
 						self.event_queue.remove( ev )
 
 						oid = self.get_id( e )
@@ -522,7 +560,7 @@ class Local_Event_Manager (Event_Manager):
 					print "Failed executing event:", ex
 			
 			elif e.system_lifetime[1] >= 0 and e.system_lifetime[1] <= tick:
-				ee = End_Event( e.dest, 0, event = e )
+				ee = End_Event( e.dest, 0, end_id = self.get_id( e ) )
 				e.dest.execute_event( ee, self.get_time( ) )
 					
 				oid = self.get_id( e )
@@ -545,10 +583,10 @@ class Network_Request_Handler (SocketServer.BaseRequestHandler):
 		
 	def handle( self ):
 		event_manager = Event_Manager.event_manager
-		event_manager.server.connections.append( self.request )
 		data = ' '
+		pkt_data = ''
 		
-		username, pw = Network_Server.recv_packet( self.request ).split( " " )
+		username, pw = event_manager.server.recv_packet( self.request ).split( " " )
 		
 		if pw != Event_Manager.event_manager.password:
 			Network_Server.send_packet( self.request, "0" )
@@ -557,13 +595,15 @@ class Network_Request_Handler (SocketServer.BaseRequestHandler):
 			Network_Server.send_packet( self.request, '1' )
 			
 		event_manager.usernames[self.request] = username
+
+		event_manager.server.connections.append( self.request )
 		
 		### Send Object_Create_Event to the new client for all objects. ###
 		
 		for o in event_manager.objects.keys( ):
 			if isinstance( o, Object ):
 				e = o.get_create_event( )
-				event_manager.set_object_id( e, id( e ) )
+				event_manager.set_object_id( e, event_manager.new_id( ) )
 				print "%s %s" % (event_manager.get_id( o ), e.oid )
 				print 'Server.connect_send( %s )' % e
 				event_manager.server.send_event( e, self.request )
@@ -587,11 +627,11 @@ class Network_Server (Thread):
 		self.port = port
 		self.event_manager = manager
 		self.server = None
+		self.recv_data = ''
 		
 		self.upstream = None
 		if kwargs.has_key( 'upstream' ):
 			self.upstream = kwargs['upstream']
-			self.connections.append( self.upstream )
 			
 			self.send_packet( self.upstream, "%s %s" % (Event_Manager.event_manager.username,
 				Event_Manager.event_manager.password) )
@@ -601,6 +641,8 @@ class Network_Server (Thread):
 				print "Authentication succeeded."
 			else:
 				raise ValueError, "Authentication failed (%s)." % response
+
+			self.connections.append( self.upstream )
 
 	def get_connections( self ):
 		return self.connections
@@ -630,32 +672,23 @@ class Network_Server (Thread):
 	@staticmethod
 	def send_packet( connection, data ):
 		connection.sendall( struct.pack( '>i', len( data ) ) + data )
+		print "Sent %d bytes" % len( struct.pack( '>i', len( data ) ) + data )
 		
-	@staticmethod
-	def recv_packet( connection ):
-		total_len = 0
-		total_data = []
-		size = sys.maxint
-		size_data = sock_data = ''
-		recv_size = 8192
-		
-		while total_len < size:
-			sock_data = connection.recv( recv_size )
-			if not total_data:
-				if len( sock_data ) > 4:
-					size_data += sock_data
-					size = struct.unpack( '>i', size_data[:4] )[0]
-					recv_size = size
-					if recv_size > 524288: recv_size = 524288
-					total_data.append( size_data[4:] )
-				else:
-					size_data += sock_data
-			else:
-				total_data.append( sock_data )
-			total_len = sum( [len( i ) for i in total_data] )
+	def recv_packet( self, connection ):
+		size_data = event_data = self.recv_data
+
+		while len( size_data ) < 4:
+			size_data = connection.recv( 1024 )
 			
-		data = ''.join( total_data )
-		return data
+		size = struct.unpack( '>i', size_data[:4] )[0]				
+		event_data = size_data[4:]
+	
+		while len( event_data ) < size:
+			event_data += connection.recv( 1024 )
+			
+		return_data = event_data[:size]
+		self.recv_data = event_data[size:]
+		return return_data
 
 	def recv_event( self, connection ):
 		data = self.recv_packet( connection )
@@ -709,15 +742,17 @@ class Naive_Network_Event_Manager (Local_Event_Manager):
 		Queue an event for processing.
 		@param event The @ref Event to queue.
 		"""
+		self.lock.acquire( )
 		Local_Event_Manager.queue_event( self, event )
 		if not self.objects.has_key( event ):
-			self.set_object_id( event, id( event ) )
+			self.set_object_id( event, self.new_id( ) )
 
 		if not event.is_local( ):
 			for c in self.server.get_connections( ):
 				if c != event.source_connection:
 					print "Network_Event_Manager.send( %s )" % event
 					self.server.send_event( event, c )
+		self.lock.release( )
 
 	def get_event_class( self, class_name ):
 		return self.event_classes[class_name]
