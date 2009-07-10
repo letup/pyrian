@@ -4,10 +4,11 @@ import sys
 import Numeric
 from effects import *
 from effects.starfield import Starfield
-from event import *
+from manager import *
 from media import *
 from media import Animation
 import os
+from physics import *
 
 import pygame
 from pygame import Rect
@@ -15,6 +16,15 @@ from pygame.locals import *
 
 import random
 import traceback
+
+
+
+def combinations(items, n):
+	if n==0: yield []
+	else:
+		for i in xrange(len(items)):
+			for cc in combinations(items[i+1:],n-1):
+				yield [items[i]]+cc
 
 def char_plus_shift( c ):
 	if c == "/": return "?"
@@ -74,6 +84,7 @@ class Game:
 				else:
 					game.event_manager.set_object_id( o, str( event.oid ) )
 				self.level.objects.append( o )
+				self.level.collision_detector.add_object( o )
 				#print [(o.__class__.__name__, o.p) for o in self.level.objects]
 
 		elif isinstance( event, Message_Event ):
@@ -178,6 +189,67 @@ class Camera:
 		
 		self.blur.blit( surface, (0, 0) )
 		surface.set_clip( clip )
+
+class Collision_Detector:
+	def __init__( self, grid_size ):
+		self.grid_size = int( grid_size )
+		self.grid = {}
+		self.positions = {}
+		self.objects = []
+		
+	def position_to_grid( self, p ):
+		return (int( p[0] / float( self.grid_size ) ),
+			int( p[1] / float( self.grid_size ) ))
+		
+	def add_object( self, obj, time ):
+		self.objects.append( obj )
+		p = obj.get_position( time )
+		self.positions[obj] = p
+		p = self.position_to_grid( p )
+		
+		if self.grid.has_key( p ):
+			self.grid[p].append( obj )
+		else:
+			self.grid[p] = [obj]
+			
+		print self.grid
+		
+	def compute_collisions( self, time ):
+		for obj in self.objects:
+			p1 = obj.get_position( time )
+			p2 = self.positions[obj]
+			self.positions[obj] = p1
+
+			p1 = self.position_to_grid( p1 )
+			p2 = self.position_to_grid( p2 )
+
+			if p1[0] != p2[0] or p1[1] != p2[1]:
+				if self.grid.has_key( p1 ):
+					self.grid[p1].append( obj )
+				else:
+					self.grid[p1] = [obj]
+
+				if self.grid.has_key( p2 ):
+					if obj in self.grid[p2]:
+						self.grid[p2].remove( obj )
+						if len( self.grid[p2] ) == 0:
+							del self.grid[p2]
+
+		for gp in self.grid.keys( ):
+			gpo = self.grid[gp]
+
+			for gp2 in ((gp[0]-1,gp[1]), (gp[0], gp[1]+1), gp):
+				if self.grid.has_key( gp2 ):
+					gpo2 = self.grid[gp2]
+				
+					for pair in combinations( list( set( gpo + gpo2 ) ), 2 ):
+						o1 = pair[0]
+						o2 = pair[1]
+							
+						if o1 != o2:
+							o1.collides( o2, time )
+							#print "%s collides with %s" % (o1, o2)
+							
 	
 class Level:
 	def __init__( self ):
@@ -185,6 +257,7 @@ class Level:
 		self.objects = []
 		self.text_lines = []
 		self.msg_buffer = None
+		self.collision_detector = Collision_Detector( 200 )
 	
 	def get_time( self ):
 		return (pygame.time.get_ticks( ) - self.start_time) / 1000.0
@@ -200,9 +273,17 @@ class Level:
 		w = surface.get_size( )[0]
 		h = surface.get_size( )[1]
 		
-		s = Ship( p = Numeric.array( [0.0, 0.0] ) )
+		#s = Ship( p = Numeric.array( [random.random( )*400.0, random.random( ) * 400.0] ) )
+		s = Ship( p = Numeric.array( [400.0, 0] ) )
 		event_manager.set_object_id( s, event_manager.new_id( ) )
 		self.objects.append( s )
+		self.collision_detector.add_object( s, 0 )
+		event_manager.queue_event( s.get_create_event( ) )
+
+		s = Ship( p = Numeric.array( [0, 0] ) )
+		event_manager.set_object_id( s, event_manager.new_id( ) )
+		self.objects.append( s )
+		self.collision_detector.add_object( s, 0 )
 		event_manager.queue_event( s.get_create_event( ) )
 		
 		camera = Camera( Rect( 0, 0, w, h ), s )
@@ -255,6 +336,8 @@ class Level:
 			last_time = pygame.time.get_ticks( )
 			
 			self.objects.sort( cmp = lambda o1, o2: int( o1.p[1] - o2.p[1] ) )
+
+			self.collision_detector.compute_collisions( event_manager.get_time( ) )
 			
 			### Draw objects. ###
 
