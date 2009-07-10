@@ -44,6 +44,7 @@ class Image (object):
 
 		rect = self.rect
 		
+		
 		x = at[0] - self.rect.w/2
 		y = at[1] - self.rect.h/2
 
@@ -69,6 +70,8 @@ class Image (object):
 			self.last_draw = -1
 
 		rect.move_ip( -x, -y )
+
+		#pygame.draw.circle( surface, (255,0,0), (int( at[0] ), int( at[1] )), 3, 2 )
 		
 	def get_copy( self, name ):
 		if not self.images.has_key( name ):
