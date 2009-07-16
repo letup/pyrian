@@ -104,6 +104,7 @@ class Ship (Object):
 		self.anim = self.reg_anim
 		self.thrust = 0
 		self.key_events = {}
+		self.damping_events = []
 		
 #		self.name = Event_Manager.event_manager.username
 		self.name = username
@@ -119,26 +120,40 @@ class Ship (Object):
 		self.anim.draw( surface, c )
 		
 	def handle_input_event( self, event ):
+		rem = []
+		for e in self.damping_events:
+			if not e.is_alive( ):
+				rem.append( e )
+		for e in rem:
+			self.damping_events.remove( e )
+			
 		if event.type == KEYDOWN:
-			print self
-			print Event_Manager.event_manager.objects
 			if event.key == K_UP: 
+				for e in self.damping_events:
+					if isinstance( e, Damping_Force_Event ):
+						event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )
 				self.key_events[K_UP] = [
-					Oriented_Force_Event( self, 0, Event.INDEFINITE, m = 100.0, ro = 0 )]
+					Oriented_Force_Event( self, 0, Event.INDEFINITE, m = 200.0, ro = 0 )]
 				for e in self.key_events[K_UP]:
 					event_manager.queue_event( e )
 				
 			elif event.key == K_LEFT:
+				for e in self.damping_events:
+					if isinstance( e, Rotational_Damping_Force_Event ):
+						event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )
 				self.key_events[K_LEFT] = [
-					Rotational_Force_Event( self, 0, Event.INDEFINITE, ra = 3.0 ),
-					Rotational_Force_Event( self, 0.6, Event.INDEFINITE, ra = -3.0 )]
+					Rotational_Force_Event( self, 0, Event.INDEFINITE, ra = 4.0 ),
+					Rotational_Force_Event( self, 0.6, Event.INDEFINITE, ra = -4.0 )]
 				event_manager.queue_event( self.key_events[K_LEFT][0] )
 				event_manager.queue_event( self.key_events[K_LEFT][1] )
 
 			elif event.key == K_RIGHT:
+				for e in self.damping_events:
+					if isinstance( e, Rotational_Damping_Force_Event ):
+						event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )						
 				self.key_events[K_RIGHT] = [
-					Rotational_Force_Event( self, 0, Event.INDEFINITE, ra = -3.0 ),
-					Rotational_Force_Event( self, 0.6, Event.INDEFINITE, ra = 3.0 )]
+					Rotational_Force_Event( self, 0, Event.INDEFINITE, ra = -4.0 ),
+					Rotational_Force_Event( self, 0.6, Event.INDEFINITE, ra = 4.0 )]
 				event_manager.queue_event( self.key_events[K_RIGHT][0] )
 				event_manager.queue_event( self.key_events[K_RIGHT][1] )
 
@@ -147,9 +162,13 @@ class Ship (Object):
 				for e in self.key_events[event.key]:
 					event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )
 					if isinstance( e, Oriented_Force_Event ):
-						event_manager.queue_event( Damping_Force_Event( self, 0, 1.0, c = -10 ) )
+						ev = Damping_Force_Event( self, 0, 1.0, c = -10 )
+						event_manager.queue_event( ev )
+						self.damping_events.append( ev )
 					else:
-						event_manager.queue_event( Rotational_Damping_Force_Event( self, 0, 1.0, c = -5 ) )
+						ev = Rotational_Damping_Force_Event( self, 0, 1.0, c = -5 )
+						event_manager.queue_event( ev )
+						self.damping_events.append( ev )
 				del self.key_events[event.key]
 
 class Camera:
@@ -410,7 +429,8 @@ if __name__ == "__main__":
 		Rotational_Damping_Force_Event,
 		End_Event,
 		Object_Commit_Event,
-		Set_Event] )
+		Set_Event,
+		Add_Event] )
 
 	try:
 		game.run( )

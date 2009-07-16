@@ -51,6 +51,9 @@ class Event:
 				spec_data[k] = self.__dict__[k]
 				
 		return pickle.dumps( spec_data )
+		
+	def is_alive( self ):
+		return self.alive
 
 	def __repr__( self ):
 		return '%s' % (self.__class__.__name__)
@@ -167,6 +170,7 @@ class Local_Event_Manager (Event_Manager):
 						del self.objects[e]
 						del self.ids[oid]
 						self.event_queue.remove( e )
+						ev.alive = False
 
 				except Not_Executable_Exception, ex:
 					print "Failed executing event:", ex
@@ -179,6 +183,8 @@ class Local_Event_Manager (Event_Manager):
 				del self.objects[e]
 				del self.ids[oid]
 				self.event_queue.remove( e )
+				
+				e.alive = False
 
 class Network_Request_Handler_Factory:
 	@staticmethod
