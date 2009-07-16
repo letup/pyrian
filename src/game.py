@@ -70,6 +70,9 @@ class Game:
 
 	def get_class( self, class_name ):
 		return globals( )[class_name]
+
+	def get_create_event( self ):
+		return None
 		
 	def execute_event( self, event, time ):
 		if isinstance( event, Object_Create_Event ):
@@ -84,7 +87,7 @@ class Game:
 				else:
 					game.event_manager.set_object_id( o, str( event.oid ) )
 				self.level.objects.append( o )
-				self.level.collision_detector.add_object( o )
+				self.level.collision_detector.add_object( o, Event_Manager.event_manager.get_time( ) )
 				#print [(o.__class__.__name__, o.p) for o in self.level.objects]
 
 		elif isinstance( event, Message_Event ):
@@ -196,6 +199,7 @@ class Collision_Detector:
 		self.grid = {}
 		self.positions = {}
 		self.objects = []
+		self.collisions = {}
 		
 	def position_to_grid( self, p ):
 		return (int( p[0] / float( self.grid_size ) ),
@@ -247,9 +251,20 @@ class Collision_Detector:
 						o2 = pair[1]
 							
 						if o1 != o2:
-							o1.collides( o2, time )
-							#print "%s collides with %s" % (o1, o2)
-							
+							k = (o1, o2)
+							if o1 > o2:
+								k = (o2, o1)
+						
+							if (not self.collisions.has_key( k ) or
+								time - self.collisions[k] > .5):
+								if o1.collides( o2, time ):
+									self.collisions[k] = time
+									print "%s collides with %s" % (o1, o2)
+									print self.collisions, time, self.collisions[k]
+									
+							elif (self.collisions.has_key( k ) and
+								time - self.collisions[k] > .5):
+								del self.collisions[k]
 	
 class Level:
 	def __init__( self ):
@@ -273,14 +288,8 @@ class Level:
 		w = surface.get_size( )[0]
 		h = surface.get_size( )[1]
 		
-		#s = Ship( p = Numeric.array( [random.random( )*400.0, random.random( ) * 400.0] ) )
-		s = Ship( p = Numeric.array( [400.0, 0] ) )
-		event_manager.set_object_id( s, event_manager.new_id( ) )
-		self.objects.append( s )
-		self.collision_detector.add_object( s, 0 )
-		event_manager.queue_event( s.get_create_event( ) )
-
-		s = Ship( p = Numeric.array( [0, 0] ) )
+		s = Ship( p = Numeric.array( [random.random( )*400.0, random.random( ) * 400.0] ) )
+		print s.p
 		event_manager.set_object_id( s, event_manager.new_id( ) )
 		self.objects.append( s )
 		self.collision_detector.add_object( s, 0 )
@@ -349,7 +358,7 @@ class Level:
 			oi = 1
 			for o in self.objects:
 				p = o.get_position( event_manager.get_time( ) )
-				rp = o.get_orientation( event_manager.get_time( ) )
+				rp = o.get_speed( event_manager.get_time( ) )
 				#print "%s = %s" % (o, p)
 				text = font.render( "(%d, %d) (%.2f)" % 
 					(p[0], p[1], rp), 1, (255, 255, 255) )
@@ -400,7 +409,8 @@ if __name__ == "__main__":
 		Damping_Force_Event,
 		Rotational_Damping_Force_Event,
 		End_Event,
-		Object_Commit_Event] )
+		Object_Commit_Event,
+		Set_Event] )
 
 	try:
 		game.run( )
