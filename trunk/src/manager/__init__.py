@@ -213,8 +213,8 @@ class Network_Request_Handler (SocketServer.BaseRequestHandler):
 		### Send Object_Create_Event to the new client for all objects. ###
 		
 		for o in event_manager.objects.keys( ):
-			if isinstance( o, Object ):
-				e = o.get_create_event( )
+			e = o.get_create_event( )
+			if e != None:			
 				event_manager.set_object_id( e, event_manager.new_id( ) )
 				print "%s %s" % (event_manager.get_id( o ), e.oid )
 				print 'Server.connect_send( %s )' % e
