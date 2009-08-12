@@ -44,7 +44,6 @@ class Image (object):
 
 		rect = self.rect
 		
-		
 		x = at[0] - self.rect.w/2
 		y = at[1] - self.rect.h/2
 
@@ -134,3 +133,7 @@ class Animation:
 	def draw( self, surface, at ):
 		img = self.image_map[tuple( self.state_offsets )]
 		img.draw( surface, at )
+
+	def get_image( self ):
+		return self.image_map[tuple( self.state_offsets )]
+

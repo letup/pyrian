@@ -4,6 +4,7 @@ import sys
 import Numeric
 from effects import *
 from effects.starfield import Starfield
+from effects.shield import Shield_Effect
 from manager import *
 from media import *
 from media import Animation
@@ -79,13 +80,15 @@ class Game:
 			try:
 				Event_Manager.event_manager.get_object( event.oid )
 			except:
-				print "Game.create_object( %s )" % event.klass
 				o = event.klass( **event.kwargs )
 				if event.oid == None:
 					game.event_manager.set_object_id( o, str( event_manager.new_id( ) ) )
 					event.oid = str( event_manager.new_id( ) )
 				else:
 					game.event_manager.set_object_id( o, str( event.oid ) )
+				print "Game.create_object( %s, %s )" % (event.klass,
+					game.event_manager.get_id( o ))
+				o.source_connection = event.source_connection
 				self.level.objects.append( o )
 				self.level.collision_detector.add_object( o, Event_Manager.event_manager.get_time( ) )
 				#print [(o.__class__.__name__, o.p) for o in self.level.objects]
@@ -93,6 +96,9 @@ class Game:
 		elif isinstance( event, Message_Event ):
 			self.level.text_lines.insert( 0, (pygame.time.get_ticks( ), 
 				"%s: %s" % (event.name,	event.msg)) )
+
+		elif isinstance( event, Collision_Event ):
+			self.level.collision_detector.execute_event( event, time )
 
 class Ship (Object):
 	__slots__ = ['name']
@@ -105,6 +111,7 @@ class Ship (Object):
 		self.thrust = 0
 		self.key_events = {}
 		self.damping_events = []
+		self.shield = Shield_Effect( 120, 120, self )
 		
 #		self.name = Event_Manager.event_manager.username
 		self.name = username
@@ -118,6 +125,16 @@ class Ship (Object):
 		self.anim.set_time( 1, self.get_orientation( 
 			event_manager.get_time( ) ) / (2*math.pi) )
 		self.anim.draw( surface, c )
+		self.shield.update( event_manager.get_time( ) )
+		self.shield.draw( surface, c )
+		
+	def execute_event( self, e, time ):
+		if isinstance( e, Activation_Event ):
+			for o in e.objs.keys( ):
+				if self.__dict__.has_key( o ):
+					self.__dict__[o].set_active( e.objs[o], time )
+			
+		Object.execute_event( self, e, time )
 		
 	def handle_input_event( self, event ):
 		rem = []
@@ -131,7 +148,8 @@ class Ship (Object):
 			if event.key == K_UP: 
 				for e in self.damping_events:
 					if isinstance( e, Damping_Force_Event ):
-						event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )
+						try: event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )
+						except: pass
 				self.key_events[K_UP] = [
 					Oriented_Force_Event( self, 0, Event.INDEFINITE, m = 200.0, ro = 0 )]
 				for e in self.key_events[K_UP]:
@@ -140,7 +158,8 @@ class Ship (Object):
 			elif event.key == K_LEFT:
 				for e in self.damping_events:
 					if isinstance( e, Rotational_Damping_Force_Event ):
-						event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )
+						try: event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )
+						except: pass
 				self.key_events[K_LEFT] = [
 					Rotational_Force_Event( self, 0, Event.INDEFINITE, ra = 4.0 ),
 					Rotational_Force_Event( self, 0.6, Event.INDEFINITE, ra = -4.0 )]
@@ -150,26 +169,44 @@ class Ship (Object):
 			elif event.key == K_RIGHT:
 				for e in self.damping_events:
 					if isinstance( e, Rotational_Damping_Force_Event ):
-						event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )						
+						try: event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )						
+						except: pass
 				self.key_events[K_RIGHT] = [
 					Rotational_Force_Event( self, 0, Event.INDEFINITE, ra = -4.0 ),
 					Rotational_Force_Event( self, 0.6, Event.INDEFINITE, ra = 4.0 )]
 				event_manager.queue_event( self.key_events[K_RIGHT][0] )
 				event_manager.queue_event( self.key_events[K_RIGHT][1] )
 
+			elif event.key == K_s:
+				self.key_events[K_s] = [Activation_Event( self, 0, shield = True )]
+				event_manager.queue_event( self.key_events[K_s][0] )
+
 		elif event.type == KEYUP:
+			rdamp = False
+			damp = False
+		
 			if self.key_events.has_key( event.key ):
 				for e in self.key_events[event.key]:
-					event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )
 					if isinstance( e, Oriented_Force_Event ):
-						ev = Damping_Force_Event( self, 0, 1.0, c = -10 )
-						event_manager.queue_event( ev )
-						self.damping_events.append( ev )
-					else:
-						ev = Rotational_Damping_Force_Event( self, 0, 1.0, c = -5 )
-						event_manager.queue_event( ev )
-						self.damping_events.append( ev )
+						event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )
+						damp = True
+					elif isinstance( e, Rotational_Force_Event ):
+						event_manager.queue_event( End_Event( e.dest, 0, end_id = event_manager.get_id( e ) ) )
+						rdamp = True
+					elif isinstance( e, Activation_Event ):
+						event_manager.queue_event( Activation_Event( self, 0, shield = False ) )
+						
 				del self.key_events[event.key]
+
+			if damp:
+				ev = Damping_Force_Event( self, 0, 1.0, c = -10 )
+				event_manager.queue_event( ev )
+				self.damping_events.append( ev )
+
+			if rdamp:
+				ev = Rotational_Damping_Force_Event( self, 0, 1.0, c = -5 )
+				event_manager.queue_event( ev )
+				self.damping_events.append( ev )
 
 class Camera:
 	def __init__( self, rect, focus ):
@@ -235,7 +272,9 @@ class Collision_Detector:
 		else:
 			self.grid[p] = [obj]
 			
-		print self.grid
+	def execute_event( self, event, time ):
+		if isinstance( event, Collision_Event ):
+			pass
 		
 	def compute_collisions( self, time ):
 		for obj in self.objects:
@@ -307,8 +346,8 @@ class Level:
 		w = surface.get_size( )[0]
 		h = surface.get_size( )[1]
 		
-		s = Ship( p = Numeric.array( [random.random( )*400.0, random.random( ) * 400.0] ) )
-		print s.p
+		p = Numeric.array( [random.random( )*50.0, 0] )
+		s = Ship( p = p )
 		event_manager.set_object_id( s, event_manager.new_id( ) )
 		self.objects.append( s )
 		self.collision_detector.add_object( s, 0 )
@@ -323,6 +362,7 @@ class Level:
 				if event.type == pygame.QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
 					print 'Exitting...'
 					print Event_Manager.event_manager.objects
+					print Event_Manager.event_manager.event_queue
 					Event_Manager.event_manager.shutdown( )
 					sys.exit( )
 				elif event.type == KEYDOWN and event.key == K_RETURN:
@@ -371,13 +411,15 @@ class Level:
 
 			camera.draw( self.objects, surface, (0, 0) )
 			
-			text = font.render( "%f frames/s" % fps, 1, (255, 255, 255) )
+			#text = font.render( "%f frames/s" % fps, 1, (255, 255, 255) )
+			text = font.render( "%f" % Event_Manager.event_manager.get_time( ), 1, (255, 255, 255) )
 			surface.blit( text, (10, 10) )
 			
 			oi = 1
 			for o in self.objects:
 				p = o.get_position( event_manager.get_time( ) )
 				rp = o.get_speed( event_manager.get_time( ) )
+				#print o.get_orientation( event_manager.get_time( ) ) * 180.0/3.14159, o.get_rotational_velocity( event_manager.get_time( ) ), len( o.forces )
 				#print "%s = %s" % (o, p)
 				text = font.render( "(%d, %d) (%.2f)" % 
 					(p[0], p[1], rp), 1, (255, 255, 255) )
@@ -430,7 +472,10 @@ if __name__ == "__main__":
 		End_Event,
 		Object_Commit_Event,
 		Set_Event,
-		Add_Event] )
+		Add_Event,
+		Activation_Event,
+		Collision_Event,
+		Clock_Event] )
 
 	try:
 		game.run( )
