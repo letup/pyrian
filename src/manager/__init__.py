@@ -8,6 +8,7 @@ import pickle
 import struct
 import sys
 import random
+import types
 
 from Numeric import array, zeros
 import math
@@ -62,17 +63,31 @@ class Event:
 	def deserialize( msg ):
 		try:
 			msg = pickle.loads( msg )
+			
 			dest = Event_Manager.event_manager.get_object( msg['dest_id'] )
 			lifetime = msg['event_lifetime']
 			klass = Event_Manager.event_manager.get_event_class( msg['event_class'] )
-			try:
-				e = klass( dest, *lifetime, **msg )
-			except:
-				e = klass( dest, lifetime[0], **msg )
-			Event_Manager.event_manager.set_object_id( e, msg['event_id'] )
+			if klass == Clock_Event:
+				e = Clock_Event( msg['time'] )
+			else:
+				try:
+					e = klass( dest, *lifetime, **msg )
+				except:
+					e = klass( dest, lifetime[0], **msg )
+				Event_Manager.event_manager.set_object_id( e, msg['event_id'] )
 			return e
 		except:
 			traceback.print_exc( )
+
+class Clock_Event (Event):
+	__slots__ = ['time']
+
+	def __init__( self, time ):
+		Event.__init__( self, Event_Manager.event_manager.game, 0, 0 )
+		self.time = time
+		
+	def get_time( self ):
+		return self.time
 			
 class End_Event (Event):
 	__slots__ = ['end_id']
@@ -83,7 +98,10 @@ class End_Event (Event):
 		self.end_id = kwargs['end_id']
 
 	def get_event( self ):
-		return Event_Manager.event_manager.get_object( self.end_id )
+		try:
+			return Event_Manager.event_manager.get_object( self.end_id )
+		except:
+			return None
 
 	def __repr__( self ):
 		return '%s( %s )' % (self.__class__.__name__, self.end_id)
@@ -110,10 +128,16 @@ class Event_Manager:
 		self.id_str = "".join( [chr( random.randint( 97, 122 ) ) for i in range( 3 )] )
 		
 	def get_id( self, object ):
-		return self.objects[object]
+		if type( object ) == types.StringType:
+			return object
+		else:
+			return self.objects[object]
 
 	def get_object( self, id ):
-		return self.ids[id]
+		if type( id ) == types.StringType:
+			return self.ids[id]
+		else:
+			return id
 		
 	def set_object_id( self, object, id ):
 		self.objects[object] = str( id )
@@ -157,27 +181,28 @@ class Local_Event_Manager (Event_Manager):
 					e.system_lifetime[0] = Event.INDEFINITE
 					
 					### Handle special events. ###
-					
-					e.dest.execute_event( e, self.get_time( ) )
+
+					self.get_object( e.dest ).execute_event( e, self.get_time( ) )
 					
 					if isinstance( e, End_Event ):
 						ev = e.get_event( )
-						del self.objects[ev]
-						del self.ids[e.end_id]
-						self.event_queue.remove( ev )
+						if ev != None:
+							del self.objects[ev]
+							del self.ids[e.end_id]
+							self.event_queue.remove( ev )
+							ev.alive = False
 
 						oid = self.get_id( e )
 						del self.objects[e]
 						del self.ids[oid]
 						self.event_queue.remove( e )
-						ev.alive = False
 
 				except Not_Executable_Exception, ex:
 					print "Failed executing event:", ex
 			
 			elif e.system_lifetime[1] >= 0 and e.system_lifetime[1] <= tick:
 				ee = End_Event( e.dest, 0, end_id = self.get_id( e ) )
-				e.dest.execute_event( ee, self.get_time( ) )
+				self.get_object( e.dest ).execute_event( ee, self.get_time( ) )
 					
 				oid = self.get_id( e )
 				del self.objects[e]
@@ -235,7 +260,22 @@ class Network_Request_Handler (SocketServer.BaseRequestHandler):
 		Network_Request_Handler.event_manager.server.connections.remove( self.request )
 		print self.client_address, 'disconnected.'
 		Network_Request_Handler.event_manager.server.close_request( self.request )
+
+class Network_Server_Clock:
+	def __init__( self, server, interval ):
+		self.server = server
+		self.interval = interval
+		self.timer = Timer( self.interval, self.act )
 		
+	def act( self ):
+		Event_Manager.event_manager.queue_event( 
+			Clock_Event( Local_Event_Manager.get_time( Event_Manager.event_manager ) ) )
+
+		self.timer = Timer( self.interval, self.act )
+		self.timer.start( )
+		
+	def start( self ):
+		self.timer.start( )
 		
 class Network_Server (Thread):
 	def __init__( self, host, port, manager, **kwargs ):
@@ -270,8 +310,10 @@ class Network_Server (Thread):
 			self.server = SocketServer.ThreadingTCPServer( (self.host, self.port),
 				Network_Request_Handler_Factory.get_handler_class( self.event_manager ) )
 			print 'Server running on port %d.' % self.port
+			clock = Network_Server_Clock( self, 1 )
+			clock.start( )
 			self.server.serve_forever( )
-			
+
 		else:
 			while True:
 				self.recv_event( self.upstream )
@@ -290,7 +332,7 @@ class Network_Server (Thread):
 	@staticmethod
 	def send_packet( connection, data ):
 		connection.sendall( struct.pack( '>i', len( data ) ) + data )
-		print "Sent %d bytes" % len( struct.pack( '>i', len( data ) ) + data )
+		#print "Sent %d bytes" % len( struct.pack( '>i', len( data ) ) + data )
 		
 	def recv_packet( self, connection ):
 		size_data = event_data = self.recv_data
@@ -313,8 +355,12 @@ class Network_Server (Thread):
 
 		e = Event.deserialize( data )
 		e.source_connection = connection
-		print "Network_Server.recv( %s, %s )" % (e, connection)
-		Event_Manager.event_manager.queue_event( e )
+		print "Network_Server.recv( %s )" % e
+
+		if isinstance( e, Clock_Event ):
+			Event_Manager.event_manager.synchronize_clock( e.time )
+		else:
+			Event_Manager.event_manager.queue_event( e )
 
 class Naive_Network_Event_Manager (Local_Event_Manager):
 	"""
@@ -335,6 +381,8 @@ class Naive_Network_Event_Manager (Local_Event_Manager):
 		self.usernames = {None : username}
 		self.username = username
 		self.password = password
+		self.server_synch_times = [(0, 0)]
+		self.server_tx_delay = 0
 		for ec in event_classes:
 			self.event_classes[ec.__name__] = ec
 
@@ -361,6 +409,7 @@ class Naive_Network_Event_Manager (Local_Event_Manager):
 		@param event The @ref Event to queue.
 		"""
 		self.lock.acquire( )
+		
 		Local_Event_Manager.queue_event( self, event )
 		if not self.objects.has_key( event ):
 			self.set_object_id( event, self.new_id( ) )
@@ -370,6 +419,7 @@ class Naive_Network_Event_Manager (Local_Event_Manager):
 				if c != event.source_connection:
 					print "Network_Event_Manager.send( %s )" % event
 					self.server.send_event( event, c )
+					
 		self.lock.release( )
 
 	def get_event_class( self, class_name ):
@@ -381,3 +431,13 @@ class Naive_Network_Event_Manager (Local_Event_Manager):
 
 	def get_connection_name( self, conn ):
 		return self.usernames[conn]
+
+	def synchronize_clock( self, time ):
+		self.server_synch_times.append( (time + self.server_tx_delay, Local_Event_Manager.get_time( Event_Manager.event_manager )) )
+		if len( self.server_synch_times ) > 10:
+			self.server_synch_times.pop( 0 )
+
+		print "SYNCH:", self.server_synch_times
+
+	def get_time( self ):
+		return self.server_synch_times[-1][0] + Local_Event_Manager.get_time( Event_Manager.event_manager ) - self.server_synch_times[-1][1]
