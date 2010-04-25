@@ -18,8 +18,6 @@ from pygame.locals import *
 import random
 import traceback
 
-
-
 def combinations(items, n):
 	if n==0: yield []
 	else:
@@ -52,7 +50,7 @@ def char_plus_shift( c ):
 	else: return c.upper( )
 
 class Game:
-	def __init__( self, media_base, width=200, height=100 ):
+	def __init__( self, media_base, width=200, height=100, interactive=False ):
 		pygame.init( )
 		self.width = width
 		self.height = height
@@ -68,6 +66,9 @@ class Game:
 		
 	def run( self ):
 		self.level.run( self.screen )
+		
+	def run_thread( self ):
+		self.thread = Thread( target = self.run, args = [self] )
 
 	def get_class( self, class_name ):
 		return globals( )[class_name]
@@ -326,14 +327,13 @@ class Collision_Detector:
 	
 class Level:
 	def __init__( self ):
-		self.start_time = pygame.time.get_ticks( )
 		self.objects = []
 		self.text_lines = []
 		self.msg_buffer = None
 		self.collision_detector = Collision_Detector( 200 )
 	
 	def get_time( self ):
-		return (pygame.time.get_ticks( ) - self.start_time) / 1000.0
+		return Event_Manager.event_manager.get_time( )
 	
 	def run( self, surface ):
 		font = pygame.font.Font( None, 18 )
@@ -346,7 +346,7 @@ class Level:
 		w = surface.get_size( )[0]
 		h = surface.get_size( )[1]
 		
-		p = Numeric.array( [random.random( )*50.0, 0] )
+		p = Numeric.array( [random.random( )*500.0, 0] )
 		s = Ship( p = p )
 		event_manager.set_object_id( s, event_manager.new_id( ) )
 		self.objects.append( s )
