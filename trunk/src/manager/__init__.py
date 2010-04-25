@@ -20,7 +20,7 @@ class Event:
 	
 	INDEFINITE = -1.0
 	
-	__slots__ = ['dest', 'source_connection', 'game_lifetime', 'system_lifetime', 'alive', 'local']
+	__slots__ = ['dest', 'source_connection', 'lifetime', 'alive', 'local']
 	
 	def __init__( self, dest, stime, etime ):
 		"""
@@ -29,8 +29,10 @@ class Event:
 		"""
 		self.dest = dest
 		self.source_connection = None
-		self.game_lifetime = (stime, etime)
-		self.system_lifetime = [stime, etime]
+		t = Event_Manager.event_manager.get_time( )
+		if stime != Event.INDEFINITE: stime += t
+		if etime != Event.INDEFINITE: etime += t
+		self.lifetime = [stime, etime]
 		self.alive = True
 		self.local = False
 		
@@ -43,7 +45,7 @@ class Event:
 	def serialize( self ):
 		spec_data = {
 			'event_id' : Event_Manager.event_manager.get_id( self ),
-			'event_lifetime' : self.game_lifetime,
+			'event_lifetime' : self.lifetime,
 			'event_class' : self.__class__.__name__,
 			'dest_id' : Event_Manager.event_manager.get_id( self.dest )}
 		
@@ -57,7 +59,7 @@ class Event:
 		return self.alive
 
 	def __repr__( self ):
-		return '%s' % (self.__class__.__name__)
+		return '%s( %s )' % (self.__class__.__name__, self.lifetime)
 			
 	@staticmethod
 	def deserialize( msg ):
@@ -159,14 +161,11 @@ class Local_Event_Manager (Event_Manager):
 		
 	def queue_event( self, event ):
 		self.event_queue.append( event )
-#		pygame.time.set_timer( pygame.USEREVENT+1, int( event.system_lifetime[0]+1 ) )
-#		if event.system_lifetime[1] >= 0:
-#			pygame.time.set_timer( pygame.USEREVENT+1, int( event.system_lifetime[1]+1 ) )
 
-		if event.system_lifetime[0] >= 0:
-			event.system_lifetime[0] += self.get_time( )
-		if event.system_lifetime[1] >= 0:
-			event.system_lifetime[1] += self.get_time( )
+		#if event.lifetime[0] >= 0:
+		#	event.lifetime[0] += self.get_time( )
+		#if event.lifetime[1] >= 0:
+		#	event.lifetime[1] += self.get_time( )
 		
 	def get_time( self ):
 		return (pygame.time.get_ticks( ) - self.start_time) / 1000.0
@@ -176,9 +175,9 @@ class Local_Event_Manager (Event_Manager):
 		
 		for e in self.event_queue:
 			#print e.__class__.__name__, e.system_lifetime, tick
-			if e.system_lifetime[0] >= 0 and e.system_lifetime[0] <= tick:
+			if e.lifetime[0] >= 0 and e.lifetime[0] <= tick:
 				try:
-					e.system_lifetime[0] = Event.INDEFINITE
+					e.lifetime[0] = Event.INDEFINITE
 					
 					### Handle special events. ###
 
@@ -200,7 +199,7 @@ class Local_Event_Manager (Event_Manager):
 				except Not_Executable_Exception, ex:
 					print "Failed executing event:", ex
 			
-			elif e.system_lifetime[1] >= 0 and e.system_lifetime[1] <= tick:
+			elif e.lifetime[1] >= 0 and e.lifetime[1] <= tick:
 				ee = End_Event( e.dest, 0, end_id = self.get_id( e ) )
 				self.get_object( e.dest ).execute_event( ee, self.get_time( ) )
 					
@@ -244,6 +243,7 @@ class Network_Request_Handler (SocketServer.BaseRequestHandler):
 		### Send Object_Create_Event to the new client for all objects. ###
 		
 		for o in event_manager.objects.keys( ):
+			print "SENDING OBJECT CREATE for %s" % o
 			e = o.get_create_event( )
 			if e != None:			
 				event_manager.set_object_id( e, event_manager.new_id( ) )
@@ -354,13 +354,14 @@ class Network_Server (Thread):
 		data = self.recv_packet( connection )
 
 		e = Event.deserialize( data )
-		e.source_connection = connection
-		print "Network_Server.recv( %s )" % e
+		if e != None:
+			e.source_connection = connection
+			print "Network_Server.recv( %s ), time=%f" % (e, self.event_manager.get_time( ))
 
-		if isinstance( e, Clock_Event ):
-			Event_Manager.event_manager.synchronize_clock( e.time )
-		else:
-			Event_Manager.event_manager.queue_event( e )
+			if isinstance( e, Clock_Event ):
+				Event_Manager.event_manager.synchronize_clock( e.time )
+			else:
+				Event_Manager.event_manager.queue_event( e )
 
 class Naive_Network_Event_Manager (Local_Event_Manager):
 	"""
@@ -437,7 +438,7 @@ class Naive_Network_Event_Manager (Local_Event_Manager):
 		if len( self.server_synch_times ) > 10:
 			self.server_synch_times.pop( 0 )
 
-		print "SYNCH:", self.server_synch_times
+		### TODO: compute self.server_tx_delay ###
 
 	def get_time( self ):
 		return self.server_synch_times[-1][0] + Local_Event_Manager.get_time( Event_Manager.event_manager ) - self.server_synch_times[-1][1]

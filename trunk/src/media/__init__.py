@@ -136,4 +136,3 @@ class Animation:
 
 	def get_image( self ):
 		return self.image_map[tuple( self.state_offsets )]
-
