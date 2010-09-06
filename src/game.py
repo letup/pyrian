@@ -17,6 +17,9 @@ from pygame.locals import *
 
 import random
 import traceback
+import signal
+
+import time
 
 def combinations(items, n):
 	if n==0: yield []
@@ -57,6 +60,7 @@ class Game:
 		self.screen = pygame.display.set_mode( (width, height), 0, 32 )
 		self.media_base = media_base
 		self.level = Level( )
+		self.alive = True
 		
 	def get_dt( self ):
 		return self.level.dt
@@ -412,7 +416,9 @@ class Level:
 			camera.draw( self.objects, surface, (0, 0) )
 			
 			#text = font.render( "%f frames/s" % fps, 1, (255, 255, 255) )
-			text = font.render( "%f" % Event_Manager.event_manager.get_time( ), 1, (255, 255, 255) )
+			emt = Event_Manager.event_manager.get_time( )
+			text = font.render( "%f" % emt, 1, (255, 255, 255) )
+			#print "%f -> %f" % (time.time( ), emt)
 			surface.blit( text, (10, 10) )
 			
 			oi = 1

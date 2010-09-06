@@ -144,7 +144,8 @@ class Event_Manager:
 	def set_object_id( self, object, id ):
 		self.objects[object] = str( id )
 		self.ids[str( id )] = object
-		print 'Event_Manager.set_object_id( %s, %s )' % (object, id)
+		if not isinstance( object, Clock_Event ):
+			print 'Event_Manager.set_object_id( %s, %s )' % (object, id)
 
 	def new_id( self ):
 		self.next_id += 1
@@ -236,20 +237,25 @@ class Network_Request_Handler (SocketServer.BaseRequestHandler):
 		else:
 			Network_Server.send_packet( self.request, '1' )
 			
-		event_manager.usernames[self.request] = username
-
 		event_manager.server.connections.append( self.request )
 		
+		event_manager.queue_event( 
+			Clock_Event( Local_Event_Manager.get_time( Event_Manager.event_manager ) ) )
+			
+		event_manager.usernames[self.request] = username
+
 		### Send Object_Create_Event to the new client for all objects. ###
 		
 		for o in event_manager.objects.keys( ):
-			print "SENDING OBJECT CREATE for %s" % o
-			e = o.get_create_event( )
-			if e != None:			
-				event_manager.set_object_id( e, event_manager.new_id( ) )
-				print "%s %s" % (event_manager.get_id( o ), e.oid )
-				print 'Server.connect_send( %s )' % e
-				event_manager.server.send_event( e, self.request )
+			try:
+				e = o.get_create_event( )
+				if e != None:			
+					event_manager.set_object_id( e, event_manager.new_id( ) )
+					print "%s %s" % (event_manager.get_id( o ), e.oid )
+					print 'Server.connect_send( %s )' % e
+					event_manager.server.send_event( e, self.request )
+			except:
+				pass
 		
 		### Request handling loop. ###
 
@@ -327,36 +333,47 @@ class Network_Server (Thread):
 		
 	def send_event( self, event, connection ):
 		data = event.serialize( )
-		self.send_packet( connection, data )
+		try:
+			self.send_packet( connection, data )
+		except:
+			self.connections.remove( connection )
 
 	@staticmethod
 	def send_packet( connection, data ):
-		connection.sendall( struct.pack( '>i', len( data ) ) + data )
+			connection.sendall( struct.pack( '>i', len( data ) ) + data )
 		#print "Sent %d bytes" % len( struct.pack( '>i', len( data ) ) + data )
 		
 	def recv_packet( self, connection ):
-		size_data = event_data = self.recv_data
+		try:
+			size_data = event_data = self.recv_data
 
-		while len( size_data ) < 4:
-			size_data = connection.recv( 1024 )
+			while len( size_data ) < 4:
+				size_data = connection.recv( 1024 )
 			
-		size = struct.unpack( '>i', size_data[:4] )[0]				
-		event_data = size_data[4:]
+			size = struct.unpack( '>i', size_data[:4] )[0]				
+			event_data = size_data[4:]
 	
-		while len( event_data ) < size:
-			event_data += connection.recv( 1024 )
+			while len( event_data ) < size:
+				event_data += connection.recv( 1024 )
 			
-		return_data = event_data[:size]
-		self.recv_data = event_data[size:]
-		return return_data
+			return_data = event_data[:size]
+			self.recv_data = event_data[size:]
+			return return_data
+		except:
+			self.connections.remove( connection )
+			return None
 
 	def recv_event( self, connection ):
 		data = self.recv_packet( connection )
+		
+		if data == None:
+			return
 
 		e = Event.deserialize( data )
 		if e != None:
 			e.source_connection = connection
-			print "Network_Server.recv( %s ), time=%f" % (e, self.event_manager.get_time( ))
+			if not isinstance( e, Clock_Event ):
+				print "Network_Server.recv( %s ), time=%f, delay=%f" % (e, self.event_manager.get_time( ), self.event_manager.server_tx_delay)
 
 			if isinstance( e, Clock_Event ):
 				Event_Manager.event_manager.synchronize_clock( e.time )
@@ -382,7 +399,7 @@ class Naive_Network_Event_Manager (Local_Event_Manager):
 		self.usernames = {None : username}
 		self.username = username
 		self.password = password
-		self.server_synch_times = [(0, 0)]
+		self.server_synch_times = []
 		self.server_tx_delay = 0
 		for ec in event_classes:
 			self.event_classes[ec.__name__] = ec
@@ -418,7 +435,7 @@ class Naive_Network_Event_Manager (Local_Event_Manager):
 		if not event.is_local( ):
 			for c in self.server.get_connections( ):
 				if c != event.source_connection:
-					print "Network_Event_Manager.send( %s )" % event
+					print "Network_Event_Manager.send( %s ), time=%f, delay=%f" % (event, self.get_time( ), self.server_tx_delay)
 					self.server.send_event( event, c )
 					
 		self.lock.release( )
@@ -434,11 +451,25 @@ class Naive_Network_Event_Manager (Local_Event_Manager):
 		return self.usernames[conn]
 
 	def synchronize_clock( self, time ):
-		self.server_synch_times.append( (time + self.server_tx_delay, Local_Event_Manager.get_time( Event_Manager.event_manager )) )
-		if len( self.server_synch_times ) > 10:
-			self.server_synch_times.pop( 0 )
+		sst = self.server_synch_times
+		
+		sst.append( 
+			(time, Local_Event_Manager.get_time( Event_Manager.event_manager )) )
+			 
+		if len( sst ) > 10:
+			sst.pop( 1 )
 
-		### TODO: compute self.server_tx_delay ###
-
+		if len( sst ) > 1:
+			d = 0
+			initd = abs( sst[0][1] - sst[0][0] )
+			for tp in sst:
+				d += abs( tp[1] - tp[0] )
+			self.server_tx_delay = abs( (d / float( len( sst ) )) - initd )
+			#print "DELAY( %s ) = %f, initd = %f" % (sst, self.server_tx_delay, initd)
+		
 	def get_time( self ):
-		return self.server_synch_times[-1][0] + Local_Event_Manager.get_time( Event_Manager.event_manager ) - self.server_synch_times[-1][1]
+		if len( self.server_synch_times ) > 1:
+			return self.server_synch_times[-1][0] - self.server_tx_delay + \
+				Local_Event_Manager.get_time( Event_Manager.event_manager ) - self.server_synch_times[-1][1]
+		else:
+			return Local_Event_Manager.get_time( Event_Manager.event_manager )
